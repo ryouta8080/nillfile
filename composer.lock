@@ -755,16 +755,16 @@
         },
         {
             "name": "software-okiba/pclib",
-            "version": "v3.54.1",
+            "version": "v3.54.2",
             "source": {
                 "type": "git",
                 "url": "git@github.com:ryouta8080/pclib.git",
-                "reference": "e705579f53bfee2bbfa44c57e550b6d5d99581db"
+                "reference": "ec09914adf91e49f45501679f771dfbc5079a81b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/ryouta8080/pclib/zipball/e705579f53bfee2bbfa44c57e550b6d5d99581db",
-                "reference": "e705579f53bfee2bbfa44c57e550b6d5d99581db",
+                "url": "https://api.github.com/repos/ryouta8080/pclib/zipball/ec09914adf91e49f45501679f771dfbc5079a81b",
+                "reference": "ec09914adf91e49f45501679f771dfbc5079a81b",
                 "shasum": ""
             },
             "require": {
@@ -777,10 +777,10 @@
                 ]
             },
             "support": {
-                "source": "https://github.com/ryouta8080/pclib/tree/v3.54.1",
+                "source": "https://github.com/ryouta8080/pclib/tree/v3.54.2",
                 "issues": "https://github.com/ryouta8080/pclib/issues"
             },
-            "time": "2025-05-16T22:50:29+00:00"
+            "time": "2025-09-21T11:27:59+00:00"
         },
         {
             "name": "symfony/polyfill-ctype",
