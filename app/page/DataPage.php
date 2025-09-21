@@ -10,6 +10,15 @@ class DataPage extends BasePageClass
 		$this->displayNotFound();
 	}
 	
+	public function playerAction()
+	{
+		$this->view->title = "";
+		$this->view->description = "";
+		
+		//$this->setTemplatePath("index/index.phtml");
+		$this->display();
+	}
+	
 	public function fileAction()
 	{
 		$host = "";
