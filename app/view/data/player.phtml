@@ -1,11 +1,16 @@
 <?php
 
-$this->view->hideLoginInfo = true;
-$this->load( $this->getViewPath() . "header.phtml" );
+$embedUrl = $this->view->embed;
 
-$videoUrl = "";
+$videoUrl = $this->view->video;
 
 ?>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Video</title>
+  <link rel="alternate" type="application/json+oembed" href="<?php $this->h->p($embedUrl); ?>" />
   <style>
     body {
       margin: 0;
@@ -23,16 +28,11 @@ $videoUrl = "";
       background: #000;
     }
   </style>
-
-		<!-- Main -->
-		<div id="main">
+</head>
+		<body>
   <video controls playsinline>
-    <source src="<?php $this->h->print($videoUrl); ?>" type="video/mp4">
+    <source src="<?php $this->h->p($videoUrl); ?>" type="video/mp4">
     お使いのブラウザは video タグをサポートしていません。
   </video>
-		</div>
-<?php
-
-$this->load( $this->getViewPath() . "footer.phtml" );
-
-?>
+		</body>
+</html>

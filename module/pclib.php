@@ -5,6 +5,7 @@ ini_set("display_startup_errors", 0);
 error_reporting(E_ALL & ~E_STRICT );
 
 require 'vendor/autoload.php';
+require 'patreon/autoload.php';
 
 $config = PCMVCDispatcher::loadConfig('../');
 

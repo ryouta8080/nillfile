@@ -10,8 +10,75 @@ class DataPage extends BasePageClass
 		$this->displayNotFound();
 	}
 	
+	public function embedAction()
+	{
+		$post = $this->getGet(
+			PCF::useParam()
+			->set("f",null, PCV::vString(),PCV::vMaxLength(255))
+			->set("k",null, PCV::vString(),PCV::vMaxLength(255))
+			->set("m","play", PCV::vInArray(["play","download"]))
+		);
+		$file = $post["f"];
+		$key = $post["k"];
+		$mode = $post["m"];
+		
+		$host = "file.nilwork.net";
+		if(isset($_SERVER["HTTP_HOST"])){
+			$host = $_SERVER["HTTP_HOST"];
+		}
+		
+		$url = "https://".$host."/data/player/?f=".$file."&k=".$key."&m=".$mode;
+		
+		$content = [
+			"version" => "1.0",
+			"title"=> "Display the Video",
+			"width"=> "100%",
+			"height"=> 600,
+			"type"=> "rich",
+			"provider_name"=> "Nill Video",
+			"provider_url"=> "https://".$host,
+			"html"=> "<iframe id='nill-frame' src='".$url."' allowfullscreen='true' style='width:100%;height:600px;border:1px #ccc solid;border-radius:10px;'></iframe>",
+			"url"=> $url
+		];
+		
+		if( ! $file || ! $key){
+			$this->displayNotFound();
+			return;
+		}
+		
+		header('Content-Type: application/json');
+		header("Access-Control-Allow-Origin: *");
+		echo json_encode($content);
+	}
+	
 	public function playerAction()
 	{
+		$post = $this->getGet(
+			PCF::useParam()
+			->set("f",null, PCV::vString(),PCV::vMaxLength(255))
+			->set("k",null, PCV::vString(),PCV::vMaxLength(255))
+			->set("m","play", PCV::vInArray(["play","download"]))
+		);
+		$file = $post["f"];
+		$key = $post["k"];
+		$mode = $post["m"];
+		
+		$host = "file.nilwork.net";
+		if(isset($_SERVER["HTTP_HOST"])){
+			$host = $_SERVER["HTTP_HOST"];
+		}
+		
+		if( ! $file || ! $key){
+			$this->displayNotFound();
+			return;
+		}
+		
+		$embedUrl = "https://".$host."/data/embed/?f=".$file."&k=".$key."&m=".$mode;
+		$this->view->embed = $embedUrl;
+		
+		$videoUrl = "https://".$host."/data/file/?f=".$file."&k=".$key."&m=".$mode;
+		$this->view->video = $videoUrl;
+		
 		$this->view->title = "";
 		$this->view->description = "";
 		
