@@ -17,27 +17,28 @@ class DataPage extends BasePageClass
 			$host = $_SERVER["HTTP_HOST"];
 		}
 		$referer = isset( $_SERVER['HTTP_REFERER'] ) ? $_SERVER['HTTP_REFERER'] : null;
-		if( !$referer || parse_url( $referer )['host'] !== $host ) {
-			$this->displayNotFound();
-			return;
+		if( !$referer || (
+			parse_url( $referer )['host'] !== $host
+			&& parse_url( $referer )['host'] !== "www.patreon.com"
+			&& parse_url( $referer )['host'] !== "patreon.com"
+			)
+		) {
+			if($this->isDebug()){
+				$post = $this->getGet(
+					PCF::useParam()
+					->set("debug",null, PCV::vInArray(["1"]))
+				);
+				$debug = $post["debug"];
+				if($debug != "1"){
+					$this->displayNotFound();
+					return;
+				}
+			}else{
+				$this->displayNotFound();
+				return;
+			}
 		}
-		/*
-		$post = $this->getGet(
-			PCF::useParam()
-			->set("p",null, PCV::vString(),PCV::vMaxLength(255))
-			->set("t",null, PCV::vInArray(["model","motion"]))
-		);
-		$type = $post["t"];
-		if( ! $type){
-			$this->displayNotFound();
-			return;
-		}
-		$path = $post["p"];
-		if( ! $path){
-			$this->displayNotFound();
-			return;
-		}
-		*/
+		
 		$post = $this->getGet(
 			PCF::useParam()
 			->set("f",null, PCV::vString(),PCV::vMaxLength(255))
@@ -53,11 +54,12 @@ class DataPage extends BasePageClass
 			return;
 		}
 		
-		$d = explode(":",$decrypted);
+		$d = explode(":",$file);
 		if( count($d) != 2){
 			$this->displayNotFound();
 			return;
 		}
+		
 		$type = $d[0];
 		$path = $d[1];
 		if($type != "movie" && $type != "image" && $type != "zip" && $type != "file"){
@@ -127,12 +129,23 @@ class DataPage extends BasePageClass
 			$this->displayNotFound();
 			return;
 		}
+		$filePath = $realPath;
 		
 		// ファイル名（ダウンロード時の名前）
-		$fileName = basename($realPath);
+		$fileName = basename($filePath);
+		$originalFileName = $fileName;
+		// ファイル名に suffix を付与（拡張子の前に追加）
+		if (isset($node['suffix']) && $node['suffix'] !== '') {
+			$dotPos = strrpos($originalFileName, '.');
+			if ($dotPos !== false) {
+				$fileName = substr($originalFileName, 0, $dotPos) ."_". $node['suffix'] . substr($originalFileName, $dotPos);
+			} else {
+				$fileName = $originalFileName . $node['suffix'];
+			}
+		}
 
 		// MIMEタイプを自動判別（動画や画像など再生可能なものはブラウザで再生される）
-		$mimeType = mime_content_type($realPath);
+		$mimeType = mime_content_type($filePath);
 
 		// ヘッダを出力
 		header('Content-Description: File Transfer');
@@ -156,7 +169,7 @@ class DataPage extends BasePageClass
 	
 	public function configLoadErrorAction()
 	{ 
-		echo "サーバーエラーが発生しました。クリエイターに連絡してください。";
+		echo "サーバーエラーが発生しました。クリエイターに連絡してください。[Error Code : CONFIG_ERROR]";
 		return;
 	}
 	
