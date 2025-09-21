@@ -1,0 +1,72 @@
+<?php
+$pcdatetime = null;
+if(isset($this->view->updateDatetime)){ 
+	$pcdatetime = new PCDateTime($this->view->updateDatetime);
+}else{
+	$pcdatetime = new PCDateTime();
+}
+$headUrl = (empty($_SERVER["HTTPS"]) ? "http://" : "https://") . $_SERVER["HTTP_HOST"];
+$jsonLD = array(
+	"@context" => "https://schema.org",
+	"@type" => "WebSite",
+	"name" => $this->view->siteName,
+	"alternateName" => $_SERVER['HTTP_HOST'],
+	"headline" => $this->view->siteName,
+	"datePublished" => $pcdatetime->getString("c"),
+	"dateModified" => $pcdatetime->getString("c"),
+	"author"=> array(
+		"@type" => "Person",
+		"name" => $this->view->siteName,
+		"url" => $headUrl . $_SERVER['HTTP_HOST'],
+	),
+	"publisher"=> array(
+		"@type" => "Organization",
+		"name" => $this->view->siteName,
+		"logo"=> array(
+			"@type"=> "ImageObject",
+			"url"=> $headUrl . "/image/icon.png",
+		)
+	),
+);
+if( isset($this->view->description) ){
+	$ogp["description"] = $this->view->description;
+	$jsonLD["description"] = $this->view->description;
+}
+$canonical = false;
+if(isset( $this->view->canonical )){
+	$canonical = $headUrl . "/" . ltrim($this->view->canonical, "/");
+}
+if( $canonical ){
+	$jsonLD["mainEntityOfPage"] = array(
+		"@type" => "WebPage",
+		"@id" => $canonical,
+	);
+}
+$ogp = array();
+if(isset( $this->view->ogp )){
+	$ogp = $this->view->ogp;
+}
+$thum = false;
+if( ! isset( $ogp["image"] ) ){
+	$thum = "/image/icon.png";
+}else{
+	$thum = $ogp["image"];
+	$thum = $headUrl . "/" . ltrim($thum, "/");
+}
+
+if( $thum ){
+	$jsonLD["image"] = array(
+		"@type" => "ImageObject",
+		"url" => $thum,
+	);
+}else{
+	$jsonLD["image"] = array(
+		"@type" => "ImageObject",
+		"url"=> $headUrl . "/image/icon.png",
+	);
+}
+
+?>
+<script type="application/ld+json">
+<?php print(PCEscape::json($jsonLD)); ?>
+</script>
