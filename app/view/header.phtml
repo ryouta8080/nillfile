@@ -1,0 +1,151 @@
+<?php
+
+$errorJson = "";
+if(isset($this->view->errors)){
+	$errors = $this->view->errors;
+	if($errors){
+		$errorJson = json_encode($errors, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+	}
+}
+
+$this->view->siteName = "ニルのファイル置き場";
+$topTitle = $this->view->siteName;
+$this->view->footerName = "ニルのファイル置き場";
+$this->view->noindex = false;
+
+$siteName = $this->view->siteName;
+
+if (! isset($this->view->title) ){
+	$this->view->title=$topTitle;
+}else{
+	$this->view->title .= " | ".$siteName;
+}
+if (! isset($this->view->description) ){
+	$this->view->description = "ニルのファイル置き場";
+}
+
+$isTop = ($_SERVER["REQUEST_URI"] == "/" || $_SERVER["REQUEST_URI"] == "/index" )? true : false;
+
+$ogp = array();
+if(isset( $this->view->ogp )){
+	$ogp = $this->view->ogp;
+}
+$ogp["title"] = $this->view->title;
+$ogp["type"] = ($_SERVER["REQUEST_URI"] == "/" || $_SERVER["REQUEST_URI"] == "/index" )? "website" : "article";
+$ogp["url"] = (empty($_SERVER["HTTPS"]) ? "http://" : "https://") . $_SERVER["HTTP_HOST"] . $_SERVER["REQUEST_URI"];
+$ogp["site_name"] = $siteName;
+
+if( ! isset( $ogp["image"] ) ){
+	$ogp["image"] = "/image/icon.png";
+	$ogp["image"] = "/image/".$config[$chara]["icon"];
+}
+
+$ogp["image"] = (empty($_SERVER["HTTPS"]) ? "http://" : "https://") . $_SERVER["HTTP_HOST"] . "/" . ltrim($ogp["image"], "/");
+
+if( isset($this->view->description) ){
+	$ogp["description"] = $this->view->description;
+}
+$ogp["card"] = "summary";
+if(isset($this->view->twitterCardImage)){
+	$ogp["card"] = "summary_large_image";
+	$ogp["twitter:image"] = $this->view->twitterCardImage;
+}
+
+function printOgpHead($ogp, $h){
+	foreach($ogp as $key => $value){
+		/*
+		<head prefix="og: http://ogp.me/ns# fb: http://ogp.me/ns/fb# article: http://ogp.me/ns/article#">
+		<meta property="og:title" content=" ページ の タイトル " />
+		<meta property="og:type" content=" ページ の種類" />
+		<meta property="og:url" content=" ページ の URL " />
+		<meta property="og:image" content=" サムネイル 画像の URL " />
+		<meta property="og:site_name" content="サイト名" />
+		<meta property="og:description" content=" ページ のディスクリプション" />
+		<meta name="twitter:card" content=" Twitter カードの種類" />
+		*/
+		if($key == "card" || $key == "twitter:image"){
+			if($key == "twitter:image"){
+				$key = "image";
+			}
+			?>
+			<meta name="twitter:<?php $h->p($key); ?>" content="<?php $h->p($value); ?>" />
+			<?php
+		}else{
+			?>
+			<meta property="og:<?php $h->p($key); ?>" content="<?php $h->p($value); ?>" />
+			<?php
+		}
+		
+	}
+}
+
+$noindex = false;
+if ( isset($this->view->noindex) ){
+	$noindex =$this->view->noindex;
+}
+
+$canonical = false;
+if(isset( $this->view->canonical )){
+	$canonical = (empty($_SERVER["HTTPS"]) ? "http://" : "https://") . $_SERVER["HTTP_HOST"] . "/" . ltrim($this->view->canonical, "/");
+}
+
+
+$this->view->viewVer =  "202507070006";
+$ver =$this->view->viewVer;
+$verParam = "?v=".$ver;
+
+?>
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<title><?php $this->h->p($this->view->title); ?></title>
+<?php
+if( isset($this->view->description) && $this->view->description ){
+		?>
+		<meta name="description" content="<?php $this->h->p($this->view->description); ?>" />
+		<?php
+}
+if( $noindex ){
+		?>
+		<meta name="robots" content="noindex">
+		<?php
+}
+if( $canonical ){
+		?>
+		<link rel="canonical" href="<?php $this->h->p($canonical); ?>">
+		<?php
+}
+?>
+		<?php printOgpHead($ogp, $this->h); ?>
+		
+<!--
+		<link rel="apple-touch-icon" type="image/png" href="/image/favicon/apple-touch-icon-180x180.png">
+		<link rel="icon" type="image/png" href="/image/favicon/icon-192x192.png">
+-->
+
+		<link rel="apple-touch-icon" type="image/png" href="/image/<?php $this->h->p($config[$chara]["icon"]); ?>">
+		<link rel="icon" type="image/png" href="/image/<?php $this->h->p($config[$chara]["icon"]); ?>">
+
+		<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.5.0/font/bootstrap-icons.css">
+		<script src="https://code.jquery.com/jquery-3.4.1.min.js" integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo=" crossorigin="anonymous"></script>
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jquery-colpick@3.1.0/css/colpick.min.css">
+		<script src="https://cdn.jsdelivr.net/npm/jquery-colpick@3.1.0/js/colpick.min.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/encoding-japanese/2.0.0/encoding.min.js" integrity="sha512-AhAMtLXTbhq+dyODjwnLcSlytykROxgUhR+gDZmRavVCNj6Gjta5l+8TqGAyLZiNsvJhh3J83ElyhU+5dS2OZw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js" integrity="sha512-3j3VU6WC5rPQB4Ld1jnLV7Kd5xr+cq9avvhwqzbH/taCRNURoeEpoPBK9pDyeukwSxwRPJ8fDgvYXd6SkaZ2TA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+		
+
+<?php
+$this->load( $this->getViewPath() . "jsonld.phtml" );
+?>
+
+	</head>
+	<body><div id="all">
+	
+		<!-- Header -->
+		<header id="header">
+
+		</header>
+

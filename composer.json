@@ -1,0 +1,18 @@
+{
+    "config": {
+        "vendor-dir": "module/vendor"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/ryouta8080/pclib.git"
+        }
+    ],
+    "require": {
+        "software-okiba/pclib": "3.*",
+        "intervention/image": "^2.4",
+        "jenssegers/imagehash": "^0.5.0",
+        "abraham/twitteroauth": "^1.0",
+        "mpyw/hardbotter": "^1.0"
+    }
+}

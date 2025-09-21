@@ -1,0 +1,10 @@
+{
+    "packages": {
+        "name": "software.okiba/pclib-skeleton",
+        "version": "1.0.0",
+        "dist": {
+            "url": "https://github.com/ryouta8080/pclib-skeleton.git",
+            "type": "git"
+        }
+    }
+}
