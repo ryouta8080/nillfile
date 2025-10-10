@@ -224,6 +224,7 @@ class DataPage extends PTUserPage
 			return;
 		}
 		
+		$node = $fileConfig;
 		$filePath = $fileConfig["file_path"];
 		
 		// ファイル名（ダウンロード時の名前）
