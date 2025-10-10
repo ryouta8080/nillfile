@@ -412,6 +412,25 @@ class PTUtil{
 		
 		$model->save($p);
 		
+		$model = new ActionCountModel();
+		if($p["action"] && $p["code"]){
+			$p2 = [
+				"action" => $action,
+				"code" => $p["code"],
+				"name" => $p["name"],
+			];
+			$data = $model->where("action=? and code=?",[$p["action"] , $p["code"]])->select();
+			if($data){
+				if($data->total > 0){
+					$p2["cnt"] = "cnt+1";
+					$model->save($p2,["cnt" => "no_escape"]);
+				}else{
+					$p2["cnt"] = 1;
+					$model->save($p2);
+				}
+			}
+		}
+		
 		return true;
 	}
 	
