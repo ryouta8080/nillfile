@@ -4,9 +4,37 @@ $fileList = $this->view->fileList ?? [];
 
 $this->load( $this->getViewPath() . "header.phtml" );
 
+/**
+ * URL安全なランダムキーを生成（A-Z a-z 0-9 - _）
+ */
+function generateUrlSafeKey(int $length = 32): string {
+    $alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    $max = strlen($alphabet);
+    $bytes = random_bytes($length);
+    $out = '';
+    for ($i = 0; $i < $length; $i++) {
+        $out .= $alphabet[ord($bytes[$i]) % $max];
+    }
+    return $out;
+}
+// ページ読み込みごとに1つ新しいキーを生成
+$newKey = generateUrlSafeKey(32);
+
 ?>
 <div class="container py-4">
   <h1 class="h4 mb-3">管理用: ファイル一覧</h1>
+
+  <div class="alert alert-light border mb-4">
+    <div class="d-flex align-items-center justify-content-between flex-wrap">
+      <div>
+        <i class="bi bi-key me-2"></i><strong>新規キー:</strong>
+        <span id="generatedKey" class="text-monospace"><?= htmlspecialchars($newKey, ENT_QUOTES, 'UTF-8') ?></span>
+      </div>
+      <button id="copyKey" class="btn btn-sm btn-outline-secondary mt-2 mt-md-0">
+        <i class="bi bi-clipboard"></i> コピー
+      </button>
+    </div>
+  </div>
 
   <?php if (empty($fileList)): ?>
     <div class="alert alert-info">表示できるファイルがありません。</div>
@@ -108,6 +136,23 @@ $this->load( $this->getViewPath() . "header.phtml" );
     btn.addEventListener('click', ()=> copy(btn.dataset.url));
   });
 })();
+
+document.getElementById('copyKey')?.addEventListener('click', () => {
+  const key = document.getElementById('generatedKey')?.textContent?.trim();
+  if (!key) return;
+  navigator.clipboard.writeText(key)
+    .then(() => {
+      const btn = document.getElementById('copyKey');
+      btn.innerHTML = '<i class="bi bi-check2-circle"></i> コピーしました';
+      btn.classList.remove('btn-outline-secondary');
+      btn.classList.add('btn-success');
+      setTimeout(() => {
+        btn.innerHTML = '<i class="bi bi-clipboard"></i> コピー';
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-secondary');
+      }, 2000);
+    });
+});
 </script>
 
 <?php
