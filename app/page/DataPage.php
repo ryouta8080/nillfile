@@ -356,6 +356,10 @@ class DataPage extends PTUserPage
 			return false;
 		}
 		
+		if($this->util->isAdmin($this->member)){
+			return true;
+		}
+		
 		$patreonInfo = $this->member["patreon"];
 		//そもそも登録していない
 		if(! $patreonInfo["current_tier_id"]){
@@ -386,83 +390,6 @@ class DataPage extends PTUserPage
 	public function notfoundAction()
 	{ 
 		$this->displayNotFound();
-	}
-	
-	
-	/**
-	 * 動画からサムネイル画像を生成し、中央に再生ボタンを重ねる
-	 * 
-	 * 必要：
-	 *  - ffmpeg (コマンド実行できること)
-	 *  - PHP GD拡張有効（画像処理）
-	 */
-
-	function createVideoThumbnail($videoPath, $thumbnailPath, $time = 2.0) {
-		if (!file_exists($videoPath)) {
-		    throw new Exception("動画ファイルが見つかりません: {$videoPath}");
-		}
-
-		// 一時出力ファイル（ベース画像）
-		$tempImage = sys_get_temp_dir() . '/thumb_' . uniqid() . '.jpg';
-
-		// ffmpegで指定秒のフレームを抽出（2秒目がデフォルト）
-		$cmd = sprintf(
-		    'ffmpeg -ss %s -i "%s" -vframes 1 -q:v 2 "%s" -y 2>&1',
-		    escapeshellarg($time),
-		    escapeshellarg($videoPath),
-		    escapeshellarg($tempImage)
-		);
-		exec($cmd, $output, $ret);
-		if ($ret !== 0 || !file_exists($tempImage)) {
-		    throw new Exception("ffmpegによるサムネイル抽出に失敗しました。\nコマンド: {$cmd}\n出力: " . implode("\n", $output));
-		}
-
-		// GDで読み込み
-		$image = imagecreatefromjpeg($tempImage);
-		if (!$image) {
-		    unlink($tempImage);
-		    throw new Exception("サムネイル画像の読み込みに失敗しました。");
-		}
-
-		$width = imagesx($image);
-		$height = imagesy($image);
-
-		// 再生ボタンを重ねる
-		$buttonSize = min($width, $height) * 0.2; // 画像サイズの20%
-		$cx = $width / 2;
-		$cy = $height / 2;
-		$triangleSize = $buttonSize * 0.5;
-
-		// 半透明黒円背景
-		$overlay = imagecreatetruecolor($width, $height);
-		imagesavealpha($overlay, true);
-		$transparent = imagecolorallocatealpha($overlay, 0, 0, 0, 127);
-		imagefill($overlay, 0, 0, $transparent);
-
-		$circleColor = imagecolorallocatealpha($overlay, 0, 0, 0, 64);
-		imagefilledellipse($overlay, $cx, $cy, $buttonSize * 1.3, $buttonSize * 1.3, $circleColor);
-
-		// 白い三角（再生ボタン）
-		$triangleColor = imagecolorallocatealpha($overlay, 255, 255, 255, 0);
-		$points = [
-		    $cx - $triangleSize / 2, $cy - $triangleSize,   // 左上
-		    $cx - $triangleSize / 2, $cy + $triangleSize,   // 左下
-		    $cx + $triangleSize, $cy,                       // 右
-		];
-		imagefilledpolygon($overlay, $points, 3, $triangleColor);
-
-		// 合成
-		imagecopy($image, $overlay, 0, 0, 0, 0, $width, $height);
-
-		// 出力保存
-		imagejpeg($image, $thumbnailPath, 90);
-
-		// クリーンアップ
-		imagedestroy($overlay);
-		imagedestroy($image);
-		unlink($tempImage);
-
-		return $thumbnailPath;
 	}
 	
 }
