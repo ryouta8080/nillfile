@@ -1,9 +1,7 @@
 <?php
-
 $embedUrl = $this->view->embed;
-
 $videoUrl = $this->view->video;
-
+$downloadUrl = $this->view->download;
 ?>
 <!DOCTYPE html>
 <html lang="ja">
@@ -19,20 +17,43 @@ $videoUrl = $this->view->video;
       justify-content: center;
       align-items: center;
       height: 100vh;
+      flex-direction: column;
     }
     video {
       width: 100%;
-      height: 100%;
-      max-width: 100%;
-      max-height: 100%;
+      height: auto;
+      max-height: 90vh;
       background: #000;
+    }
+    .download-btn {
+      margin-top: 10px;
+      background: rgba(255,255,255,0.9);
+      color: #000;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 14px;
+      transition: 0.2s;
+    }
+    .download-btn:hover {
+      background: #fff;
+      color: #000;
+      text-decoration: none;
+      box-shadow: 0 2px 5px rgba(255,255,255,0.3);
     }
   </style>
 </head>
-		<body>
+<body>
   <video controls playsinline>
     <source src="<?php $this->h->p($videoUrl); ?>" type="video/mp4">
     お使いのブラウザは video タグをサポートしていません。
   </video>
-		</body>
+
+  <?php if (!empty($downloadUrl)): ?>
+    <a class="download-btn" href="<?php $this->h->p($downloadUrl); ?>" download>
+      <i class="bi bi-download"></i> ダウンロード
+    </a>
+  <?php endif; ?>
+</body>
 </html>

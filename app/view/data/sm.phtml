@@ -1,0 +1,179 @@
+<?php
+$videoUrl = $this->view->video;
+
+$this->load( $this->getViewPath() . "header.phtml" );
+
+?>
+<style>
+  body { background:#fff; color:#111; }
+  .video-wrap { max-width: 900px; margin: 20px auto; }
+  canvas, video { max-width:100%; }
+</style>
+
+<div class="video-wrap container">
+  <h1 class="h4 mt-3 mb-3"><i class="bi bi-image me-2"></i>動画サムネイル作成</h1>
+
+  <!-- 入力フォーム -->
+  <div class="card mb-3">
+    <div class="card-body row g-2 align-items-end">
+      <div class="col-12 col-lg-8">
+        <label class="form-label">動画URL</label>
+        <input id="videoUrl" type="url" class="form-control" value="<?php $this->h->p($videoUrl); ?>">
+      </div>
+      <div class="col-6 col-lg-2">
+        <label class="form-label">抽出秒</label>
+        <input id="sec" type="number" class="form-control" value="0.1" step="0.1" min="0">
+      </div>
+      <div class="col-6 col-lg-2 d-grid">
+        <button id="loadBtn" class="btn btn-dark"><i class="bi bi-link-45deg me-1"></i>読み込み</button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 動画プレビュー -->
+  <video id="v" class="mb-3" controls playsinline crossOrigin="anonymous" style="display:none"></video>
+
+  <!-- 操作ボタン -->
+  <div class="d-flex flex-wrap gap-2 mb-2">
+    <button id="captureBtn" class="btn btn-outline-dark" disabled>
+      <i class="bi bi-camera me-1"></i>フレームをキャプチャ
+    </button>
+    <button id="downloadBtn" class="btn btn-dark" disabled>
+      <i class="bi bi-download me-1"></i>サムネイルをダウンロード
+    </button>
+    <div id="msg" class="ms-2 text-secondary"></div>
+  </div>
+
+  <!-- プレビューとキャンバス -->
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="form-text mb-1">プレビュー（生成されたサムネ）</div>
+      <img id="preview" class="img-fluid border" alt="thumbnail preview">
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="form-text mb-1">キャンバス（非表示でもOK）</div>
+      <canvas id="c" class="border" style="max-width:100%"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const v = document.getElementById('v');
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+const urlInput = document.getElementById('videoUrl');
+const secInput = document.getElementById('sec');
+const loadBtn = document.getElementById('loadBtn');
+const captureBtn = document.getElementById('captureBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const preview = document.getElementById('preview');
+const msg = document.getElementById('msg');
+
+let lastDataUrl = null;
+
+function setMsg(text, type='info') {
+  const color = {info:'#6c757d', success:'#198754', danger:'#dc3545'}[type] || '#6c757d';
+  msg.style.color = color;
+  msg.textContent = text || '';
+}
+
+var loadMovie = () => {
+  const u = (urlInput.value || '').trim();
+  if (!u) { setMsg('動画URLを入力してください', 'danger'); return; }
+  setMsg('読み込み中…');
+  v.src = u;
+  v.style.display = 'block';
+  v.load();
+  lastDataUrl = null;
+  preview.removeAttribute('src');
+  captureBtn.disabled = true;
+  downloadBtn.disabled = true;
+}
+
+loadBtn.onclick = loadMovie;
+
+v.addEventListener('loadedmetadata', () => {
+  setMsg(`読み込み完了：${v.videoWidth}x${v.videoHeight} / duration ~ ${v.duration.toFixed(2)}s`, 'success');
+  captureBtn.disabled = false;
+});
+
+v.addEventListener('error', () => {
+  setMsg('動画の読み込みに失敗しました（CORSやURLを確認）', 'danger');
+  captureBtn.disabled = true;
+  downloadBtn.disabled = true;
+});
+
+captureBtn.onclick = async () => {
+  try {
+    // メタデータが未ロードなら促進
+    if (!isFinite(v.duration)) {
+      await v.play().catch(()=>{});
+      v.pause();
+    }
+    // 指定秒へシーク（末尾ギリギリを避ける）
+    const t = Math.max(0, parseFloat(secInput.value || '0'));
+    await new Promise(res => {
+      const onseeked = () => { v.removeEventListener('seeked', onseeked); res(); };
+      v.addEventListener('seeked', onseeked);
+      v.currentTime = Math.min(t, Math.max(0, v.duration - 0.15));
+    });
+
+    const w = v.videoWidth || 640;
+    const h = v.videoHeight || 360;
+    c.width = w; c.height = h;
+
+    // フレーム描画
+    ctx.drawImage(v, 0, 0, w, h);
+
+    // 再生ボタン（半透明黒円＋白三角）
+    const btn = Math.min(w, h) * 0.22;
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(w/2, h/2, btn*0.65, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    const tri = btn * 0.5;
+    ctx.moveTo(w/2 - tri*0.4, h/2 - tri);
+    ctx.lineTo(w/2 - tri*0.4, h/2 + tri);
+    ctx.lineTo(w/2 + tri,    h/2);
+    ctx.closePath();
+    ctx.fill();
+
+    lastDataUrl = c.toDataURL('image/jpeg', 0.92);
+    preview.src = lastDataUrl;
+    downloadBtn.disabled = false;
+    setMsg('フレームをキャプチャしました', 'success');
+  } catch (e) {
+    console.error(e);
+    setMsg('キャプチャに失敗しました（CORS/DRMの可能性）', 'danger');
+  }
+};
+
+downloadBtn.onclick = () => {
+  if (!lastDataUrl) return;
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g,'-');
+  a.href = lastDataUrl;
+  a.download = `thumbnail-${ts}.jpg`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
+$(document).ready(()=>{
+    loadMovie();
+})
+
+</script>
+
+<?php
+
+$this->load( $this->getViewPath() . "footer.phtml" );
+
+?>

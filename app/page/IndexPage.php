@@ -7,6 +7,8 @@ class IndexPage extends BasePageClass
 
 	public function indexAction()
 	{
+		$this->redirect("/login");
+		return;
 		$this->notfoundAction();
 	}
 	

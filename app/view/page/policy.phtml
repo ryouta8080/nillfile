@@ -1,0 +1,129 @@
+<?php
+
+$this->view->hideLoginInfo = true;
+$this->load( $this->getViewPath() . "header.phtml" );
+
+?>
+
+<div class="container">
+  <div class="row mt-3">
+    <div class="col-lg-3">
+      <!-- サイド目次 -->
+      <div class="card mb-4" style="border:1px solid #e0e0e0;">
+        <div class="card-header bg-white">
+          <i class="bi bi-list-check me-1"></i> 目次
+        </div>
+        <div class="list-group list-group-flush">
+          <a class="list-group-item list-group-item-action" href="#pp-intro">はじめに</a>
+          <a class="list-group-item list-group-item-action" href="#pp-collect">1. 取得する情報</a>
+          <a class="list-group-item list-group-item-action" href="#pp-purpose">2. 利用目的</a>
+          <a class="list-group-item list-group-item-action" href="#pp-cookie">3. Cookieの使用</a>
+          <a class="list-group-item list-group-item-action" href="#pp-share">4. 第三者提供</a>
+          <a class="list-group-item list-group-item-action" href="#pp-external">5. 外部サービス</a>
+          <a class="list-group-item list-group-item-action" href="#pp-security">6. 情報の管理</a>
+          <a class="list-group-item list-group-item-action" href="#pp-change">7. ポリシーの変更</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-9">
+      <div class="card mb-4" style="border:1px solid #e0e0e0;">
+        <div class="card-body">
+          <h1 class="h3 mb-2">プライバシーポリシー</h1>
+          <p class="text-muted mb-4"><small><i class="bi bi-calendar-event me-1"></i>最終更新日：2025/10/10</small></p>
+
+          <section id="pp-intro" class="mb-4">
+            <p>本プライバシーポリシー（以下「本ポリシー」）は、本サイト（以下「当サイト」）における、ユーザーの個人情報の取扱い方針を定めるものです。</p>
+          </section>
+
+          <section id="pp-collect" class="mb-4">
+            <h2 class="h5 mb-3">1. 取得する情報</h2>
+            <ul>
+              <li><strong>Patreonアカウント情報</strong>（ログイン時にAPIから取得）
+                <ul>
+                  <li>PatreonアカウントID</li>
+                  <li>表示名（ユーザー名）</li>
+                  <li>支援プラン（ティア）情報</li>
+                  <li>アバター画像URL</li>
+                  <li>メールアドレス（許可されている場合）</li>
+                </ul>
+              </li>
+              <li><strong>アクセス情報</strong>
+                <ul>
+                  <li>Cookie、IPアドレス、ブラウザ情報、アクセス日時 など</li>
+                </ul>
+              </li>
+            </ul>
+          </section>
+
+          <section id="pp-purpose" class="mb-4">
+            <h2 class="h5 mb-3">2. 利用目的</h2>
+            <ul>
+              <li>Patreon認証によるログインおよびユーザー認証</li>
+              <li>特典ファイルの閲覧・ダウンロード権限の判定</li>
+              <li>サービス運営、改善、サポート対応</li>
+              <li>不正利用防止およびセキュリティ確保</li>
+              <li>利用状況の統計分析および品質向上</li>
+            </ul>
+          </section>
+
+          <section id="pp-cookie" class="mb-4">
+            <h2 class="h5 mb-3">3. Cookieの使用</h2>
+            <p>当サイトは、セッション管理や利便性向上のためにCookieを使用します。ブラウザ設定によりCookieの利用を無効化できますが、その場合は一部機能が正しく動作しない可能性があります。</p>
+
+            <p class="mt-3">また、当サイトではアクセス解析のために Google LLC（以下「Google」）が提供する
+              <strong>Google Analytics</strong> を利用しています。Google Analytics は Cookie を使用して、
+              当サイトの利用状況を収集・分析します。これにより得られる情報は Google に送信・保存され、
+              サイト改善のために利用されます。</p>
+
+            <p>Google により収集されるデータは、Google のプライバシーポリシーに基づいて管理されます。
+              詳細については以下をご参照ください：</p>
+            <ul>
+              <li><a class="link-dark" href="https://policies.google.com/technologies/partner-sites?hl=ja" target="_blank" rel="noopener noreferrer">
+                Googleによるデータ使用について</a></li>
+              <li><a class="link-dark" href="https://policies.google.com/privacy?hl=ja" target="_blank" rel="noopener noreferrer">
+                Google プライバシーポリシー</a></li>
+            </ul>
+
+            <p>ユーザーは、Google が提供する
+              <a class="link-dark" href="https://tools.google.com/dlpage/gaoptout?hl=ja" target="_blank" rel="noopener noreferrer">Google Analytics オプトアウトアドオン</a>
+              を使用することで、データ収集を無効化できます。</p>
+          </section>
+
+          <section id="pp-share" class="mb-4">
+            <h2 class="h5 mb-3">4. 個人情報の第三者提供</h2>
+            <p>以下の場合を除き、当サイトは個人情報を第三者に提供しません。</p>
+            <ul>
+              <li>法令に基づく場合</li>
+              <li>ユーザーの同意がある場合</li>
+              <li>不正行為やセキュリティ対策等、正当な理由がある場合</li>
+            </ul>
+          </section>
+
+          <section id="pp-external" class="mb-4">
+            <h2 class="h5 mb-3">5. 外部サービスとの連携</h2>
+            <p>当サイトは、Patreon社のOAuth認証およびAPIを利用しています。Patreon社のプライバシーポリシーは以下をご参照ください。</p>
+            <p class="mb-0"><a class="link-dark" href="https://www.patreon.com/policy" target="_blank" rel="noopener noreferrer"><i class="bi bi-box-arrow-up-right me-1"></i>Patreon Privacy Policy</a></p>
+          </section>
+
+          <section id="pp-security" class="mb-4">
+            <h2 class="h5 mb-3">6. 情報の管理</h2>
+            <p>当サイトは、取得情報の適切な管理に努め、不正アクセス、漏えい、改ざん等の防止に合理的な範囲で取り組みます。不要となった情報は適切な方法で削除・破棄します。</p>
+          </section>
+
+          <section id="pp-change" class="mb-4">
+            <h2 class="h5 mb-3">7. 本ポリシーの変更</h2>
+            <p>法令等の変更やサービス内容の見直しに伴い、本ポリシーを改定する場合があります。改定後は当サイト上への掲示をもって効力を生じます。</p>
+          </section>
+          
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<?php
+
+$this->load( $this->getViewPath() . "footer.phtml" );
+
+?>

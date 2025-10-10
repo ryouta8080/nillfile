@@ -2,6 +2,7 @@
 //ini_set('display_errors', "On");
 
 require 'vendor/autoload.php';
+require 'ptlib/src/loader.php';
 require 'bot.php';
 
 $dispatcher = new PCMVCDispatcher();

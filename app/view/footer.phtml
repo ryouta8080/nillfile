@@ -5,14 +5,47 @@ if( ! isset($this->view->footerName)){
 	$this->view->footerName = "";
 }
 ?>
-		<!-- Footer -->
-		<footer id="footer">
-			<div class="copyright"></div>
-		</footer>
-		
-	</div><!-- #all -->
+<footer>
+  <p class="mb-1">
+    <a href="/page/policy">プライバシーポリシー</a> |
+    <a href="/page/terms">利用規約</a>
+  </p>
+  <small>&copy; <?= date('Y') ?> ニルのファイル置き場</small>
+</footer>
 	
 	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
+
+<script>
+
+//form error info
+$(document).ready(function(){
+	var strErrorJson = $(".form-errors").data("desc");
+	console.log(strErrorJson);
+	if(strErrorJson){
+		var json = strErrorJson;
+		console.log(json);
+		for( var i=0; i <  json.desc.length; i++){
+			var item = json.desc[i];
+			$(item.name).text(item.message);
+			$(item.name +"_alert").show();
+		}
+	}
+	
+	var strInfoJson = $(".form-infos").data("desc");
+	console.log(strInfoJson);
+	if(strInfoJson){
+		var json = strInfoJson;
+		console.log(json);
+		for( var i=0; i <  json.desc.length; i++){
+			var item = json.desc[i];
+			$p = $('<p class="info"></p>');
+			$p.text(item.message);
+			$("#infos").append($p);
+		}
+	}
+	
+});
+</script>
 
 	</body>
 	

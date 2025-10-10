@@ -1,0 +1,117 @@
+<?php
+
+$this->view->hideLoginInfo = true;
+$this->load( $this->getViewPath() . "header.phtml" );
+
+?>
+
+<div class="container">
+
+  <div class="row mt-3">
+    <div class="col-lg-3">
+      <!-- サイド目次 -->
+      <div class="card mb-4" style="border:1px solid #e0e0e0;">
+        <div class="card-header bg-white">
+          <i class="bi bi-list-check me-1"></i> 目次
+        </div>
+        <div class="list-group list-group-flush">
+          <a class="list-group-item list-group-item-action" href="#tos-intro">はじめに</a>
+          <a class="list-group-item list-group-item-action" href="#tos-def">1. 定義</a>
+          <a class="list-group-item list-group-item-action" href="#tos-eligibility">2. 対象・登録</a>
+          <a class="list-group-item list-group-item-action" href="#tos-login">3. ログイン（Patreon）</a>
+          <a class="list-group-item list-group-item-action" href="#tos-membership">4. 会員・アクセス権</a>
+          <a class="list-group-item list-group-item-action" href="#tos-payment">5. 支払い・返金</a>
+          <a class="list-group-item list-group-item-action" href="#tos-license">6. ライセンス・禁止事項</a>
+          <a class="list-group-item list-group-item-action" href="#tos-disclaimer">7. 免責事項</a>
+          <a class="list-group-item list-group-item-action" href="#tos-service">8. 変更・停止</a>
+          <a class="list-group-item list-group-item-action" href="#tos-termination">9. 利用停止・解除</a>
+          <a class="list-group-item list-group-item-action" href="#tos-effective">10. 改定</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-9">
+      <div class="card mb-4" style="border:1px solid #e0e0e0;">
+        <div class="card-body">
+          <h1 class="h3 mb-2">利用規約</h1>
+          <p class="text-muted mb-4"><small><i class="bi bi-calendar-event me-1"></i>最終更新日：2025/10/10</small></p>
+
+          <section id="tos-intro" class="mb-4">
+            <p>本利用規約（以下「本規約」）は、本サイト（以下「当サイト」）の提供するサービス（以下「本サービス」）の利用条件を定めるものです。本サービスを利用する前に、本規約をよくお読みください。ユーザーが本サービスを利用した時点で、本規約に同意したものとみなされます。</p>
+          </section>
+
+          <section id="tos-def" class="mb-4">
+            <h2 class="h5 mb-3">1. 定義</h2>
+            <ul>
+              <li>「ユーザー」：当サイトを利用するすべての者</li>
+              <li>「会員」：Patreonにおいて当サイト運営者に対して支援登録を行い、当サイトにログインしたユーザー</li>
+              <li>「特典」：会員に対して提供されるダウンロード可能なコンテンツ等</li>
+            </ul>
+          </section>
+
+          <section id="tos-eligibility" class="mb-4">
+            <h2 class="h5 mb-3">2. 対象・登録</h2>
+            <p>ユーザーは、法令により本サービスの利用が制限される場合を除き、本規約に同意の上で本サービスを利用できます。未成年者は、親権者等の同意を得た上で利用してください。</p>
+          </section>
+
+          <section id="tos-login" class="mb-4">
+            <h2 class="h5 mb-3">3. ログイン（Patreon）</h2>
+            <p>本サービスへのログインは、PatreonのOAuth認証を利用します。ユーザーは、Patreonのアカウント情報の管理に責任を負うものとし、第三者による不正利用が判明した場合は速やかに当サイトへ連絡してください。</p>
+          </section>
+
+          <section id="tos-membership" class="mb-4">
+            <h2 class="h5 mb-3">4. 会員・アクセス権</h2>
+            <p>会員は、Patreon上の支援プラン（ティア）に応じて特典へのアクセス権が付与されます。アクセス権は、Patreon上の支援状態の変更・停止等により、予告なく変更または失効する場合があります。</p>
+          </section>
+
+          <section id="tos-payment" class="mb-4">
+            <h2 class="h5 mb-3">5. 支払い・返金</h2>
+            <p>支払い・課金・返金等はPatreonの規約に従います。当サイトはPatreonの課金処理には関与しません。返金の要否はPatreonのポリシーに基づき、ユーザーはPatreon側の手続に従うものとします。</p>
+          </section>
+
+          <section id="tos-license" class="mb-4">
+            <h2 class="h5 mb-3">6. 禁止事項</h2>
+            <p>以下の行為を禁止します。</p>
+            <ul>
+              <li>特典の無断複製、再配布、再販売、二次配布、公衆送信</li>
+              <li>逆コンパイル・リバースエンジニアリング等の解析行為</li>
+              <li>法令・公序良俗に反する行為、第三者の権利侵害</li>
+              <li>本サービスの運営を妨げる行為、セキュリティを脅かす行為</li>
+            </ul>
+          </section>
+
+          <section id="tos-disclaimer" class="mb-4">
+            <h2 class="h5 mb-3">7. 免責事項</h2>
+            <ul>
+              <li>当サイトは、本サービスおよび特典の内容、適合性、正確性、可用性等について、明示または黙示を問わず保証しません。</li>
+              <li>ユーザーの環境に起因して生じた障害・損害について、当サイトは責任を負いません。</li>
+              <li>外部サービス（Patreon 等）の仕様変更・障害により、本サービスの全部または一部が利用できなくなる場合があります。</li>
+              <li>当サイトは、ユーザーに発生した損害について、一切の責任を負いません。</li>
+            </ul>
+          </section>
+
+          <section id="tos-service" class="mb-4">
+            <h2 class="h5 mb-3">8. 変更・停止</h2>
+            <p>当サイトは、事前の通知なく、本サービスの内容を変更・追加・中止することがあります。これによりユーザーに生じた損害について、当サイトは責任を負いません。</p>
+          </section>
+
+          <section id="tos-termination" class="mb-4">
+            <h2 class="h5 mb-3">9. 利用停止・解除</h2>
+            <p>ユーザーが本規約に違反した場合、当サイトは事前の通知なく、当該ユーザーの利用停止またはアクセス権の解除等を行うことができます。</p>
+          </section>
+
+          <section id="tos-effective" class="mb-2">
+            <h2 class="h5 mb-3">10. 改定</h2>
+            <p>本規約は必要に応じて内容を改定する場合があり、改定後は当サイトに掲示した時点で効力を生じます。</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<?php
+
+$this->load( $this->getViewPath() . "footer.phtml" );
+
+?>

@@ -7,6 +7,13 @@ if(isset($this->view->errors)){
 		$errorJson = json_encode($errors, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 	}
 }
+$infoJson = "";
+if(isset($this->view->infos)){
+	$infos = $this->view->infos;
+	if($infos){
+		$infoJson = json_encode($infos, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
+	}
+}
 
 $this->view->siteName = "ニルのファイル置き場";
 $topTitle = $this->view->siteName;
@@ -141,11 +148,119 @@ if( $canonical ){
 $this->load( $this->getViewPath() . "jsonld.phtml" );
 ?>
 
-	</head>
-	<body><div id="all">
-	
-		<!-- Header -->
-		<header id="header">
+ <!-- 最小のダークテーマ調整 -->
+ <style>
+    .hide {
+      display: none;
+    }
+    body {
+      background: #fff;
+      color: #111;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    .navbar {
+      background-color: #f9f9f9;
+      border-bottom: 1px solid #e0e0e0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .navbar .nav-link {
+      color: #333;
+    }
+    .navbar .nav-link:hover {
+      color: #000;
+    }
+    footer {
+      background-color: #f9f9f9;
+      border-top: 1px solid #e0e0e0;
+      color: #555;
+      text-align: center;
+      padding: 1rem 0;
+      margin-top: auto;
+    }
+    footer a {
+      color: #555;
+      text-decoration: none;
+      margin: 0 10px;
+    }
+    footer a:hover {
+      color: #000;
+      text-decoration: underline;
+    }
+    main {
+      flex: 1;
+      padding: 2rem 0;
+    }
+    .card-light {
+      background-color: #fff;
+      border: 1px solid #e0e0e0;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+  </style>
 
-		</header>
+	</head>
+	<body>
+		<div class="hide form-errors" data-desc="<?php $this->h->p($errorJson); ?>"></div>
+		<div class="hide form-infos" data-desc="<?php $this->h->p($infoJson); ?>"></div>
+
+
+<?php
+$user_name = isset($this->member) && isset($this->member["patreon"]) ? $this->member["patreon"]["name"] : null;
+$is_logged_in = !empty($user_name);
+
+?>
+
+<nav class="navbar navbar-expand-lg navbar-light">
+  <div class="container">
+    <a class="navbar-brand fw-semibold" href="/">ニルのファイル置き場</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+
+    <div id="mainNav" class="collapse navbar-collapse">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="/">ホーム</a></li>
+      </ul>
+
+      <ul class="navbar-nav ms-auto align-items-lg-center">
+        <?php if ($is_logged_in): ?>
+          <li class="nav-item me-3 text-secondary small d-none d-lg-block">
+            <i class="bi bi-person-circle me-1"></i>
+            <?php $this->h->p($user_name); ?> さん
+          </li>
+          <li class="nav-item">
+            <a class="btn btn-outline-dark btn-sm" href="/account/logout">
+              <i class="bi bi-box-arrow-right me-1"></i> ログアウト
+            </a>
+          </li>
+        <?php else: ?>
+          <li class="nav-item">
+            <a class="btn btn-dark btn-sm" href="<?php $this->h->p( $this->util->getLoginUrl() ); ?>">
+              <i class="bi bi-patreon me-1"></i> Patreonでログイン
+            </a>
+          </li>
+        <?php endif; ?>
+      </ul>
+    </div>
+  </div>
+</nav>
+<section>
+<form>
+
+<div id="infos">
+  
+</div>
+
+<!-- エラーメッセージ -->
+<div class="error_form_message_alert hide">
+<div class="alert alert-danger d-flex align-items-center" role="alert">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  <div class="center error error_form_message">
+  </div>
+</div>
+</div>
+
+</form>
+</section>
 

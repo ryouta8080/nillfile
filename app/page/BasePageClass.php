@@ -1,6 +1,6 @@
 <?php
 
-class BasePageClass extends PCMVCBasicPageBase
+class BasePageClass extends PTBasePage
 {
 
 	public function indexAction()
@@ -33,14 +33,7 @@ class BasePageClass extends PCMVCBasicPageBase
 	}
 	
 	public function isDebug(){
-		if( ! isset($_SERVER["HTTP_HOST"])){
-			//batch
-			return true;
-		}
-		if( $_SERVER["HTTP_HOST"] == "dev-file.nilwork.net"){
-			return true;
-		}
-		return false;
+		return $this->util->isDebug();
 	}
 	
 	public function loadScript($path)

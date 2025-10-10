@@ -1,0 +1,117 @@
+<?php
+
+$fileList = $this->view->fileList ?? [];
+
+$this->load( $this->getViewPath() . "header.phtml" );
+
+?>
+<div class="container py-4">
+  <h1 class="h4 mb-3">管理用: ファイル一覧</h1>
+
+  <?php if (empty($fileList)): ?>
+    <div class="alert alert-info">表示できるファイルがありません。</div>
+  <?php else: ?>
+    <div class="table-responsive">
+      <table class="table table-striped align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width:60px;">#</th>
+            <th>Path</th>
+            <th>File</th>
+            <th>Plan</th>
+            <th>Suffix</th>
+            <th>Key</th>
+            <th style="min-width:220px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($fileList as $i => $row): ?>
+            <?php
+              // 可能な限り安全に取り出し
+              $path   = htmlspecialchars($row['path']  ?? '', ENT_QUOTES, 'UTF-8');
+              $name   = htmlspecialchars($row['name']  ?? '', ENT_QUOTES, 'UTF-8');
+              $plan   = htmlspecialchars($row['config']['plan']   ?? '', ENT_QUOTES, 'UTF-8');
+              $suffix = htmlspecialchars($row['config']['suffix'] ?? '', ENT_QUOTES, 'UTF-8');
+              $keyRaw = $row['config']['key'] ?? '';
+              $keyEsc = htmlspecialchars($keyRaw, ENT_QUOTES, 'UTF-8');
+
+              $video    = htmlspecialchars($row['video']    ?? '', ENT_QUOTES, 'UTF-8');
+              $download = htmlspecialchars($row['download'] ?? '', ENT_QUOTES, 'UTF-8');
+              $sm       = htmlspecialchars($row['sm']       ?? '', ENT_QUOTES, 'UTF-8');
+
+              // 表示用にキーを一部マスク
+              $maskedKey = $keyRaw ? htmlspecialchars(substr($keyRaw, 0, 4) . str_repeat('•', max(0, strlen($keyRaw)-8)) . substr($keyRaw, -4), ENT_QUOTES, 'UTF-8') : '';
+            ?>
+            <tr>
+              <td><?= $i + 1 ?></td>
+              <td class="text-muted small"><?= $path ?></td>
+              <td>
+                <div class="fw-semibold"><?= $name ?></div>
+              </td>
+              <td><span class="badge bg-dark"><?= $plan ?: '-' ?></span></td>
+              <td class="text-nowrap"><?= $suffix ?: '-' ?></td>
+              <td class="text-nowrap">
+                <span class="js-key" data-full="<?= $keyEsc ?>"><?= $maskedKey ?: '-' ?></span>
+                <?php if ($keyRaw): ?>
+                  <button class="btn btn-sm btn-outline-secondary ms-2 js-copy" data-copy="<?= $keyEsc ?>">コピー</button>
+                <?php endif; ?>
+              </td>
+              <td class="text-nowrap">
+                <?php if ($video): ?>
+                  <a class="btn btn-sm btn-outline-primary me-1" href="<?= $video ?>" target="_blank" rel="noopener">
+                    再生
+                  </a>
+                <?php endif; ?>
+                <?php if ($download): ?>
+                  <a class="btn btn-sm btn-primary me-1" href="<?= $download ?>">
+                    ダウンロード
+                  </a>
+                <?php endif; ?>
+                <?php if ($sm): ?>
+                  <a class="btn btn-sm btn-outline-secondary me-1" href="<?= $sm ?>" target="_blank" rel="noopener">
+                    サムネ
+                  </a>
+                <?php endif; ?>
+                <button class="btn btn-sm btn-outline-dark js-copy-url" data-url="<?= $video ?>">URLコピー</button>
+              </td>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+  <?php endif; ?>
+</div>
+
+<script>
+// クリップボードコピー
+(function(){
+  function copy(text){
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(()=> {
+      // 簡易トースト代わり
+      console.log('copied:', text);
+    }).catch(()=> {
+      // フォールバック
+      const ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    });
+  }
+
+  // 「キーのコピー」
+  document.querySelectorAll('.js-copy').forEach(btn=>{
+    btn.addEventListener('click', ()=> copy(btn.dataset.copy));
+  });
+
+  // 「動画URLのコピー」
+  document.querySelectorAll('.js-copy-url').forEach(btn=>{
+    btn.addEventListener('click', ()=> copy(btn.dataset.url));
+  });
+})();
+</script>
+
+<?php
+
+$this->load( $this->getViewPath() . "footer.phtml" );
+
+?>

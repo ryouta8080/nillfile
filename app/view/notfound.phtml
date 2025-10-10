@@ -4,15 +4,16 @@ $this->view->hideLoginInfo = true;
 $this->load( $this->getViewPath() . "header.phtml" );
 
 ?>
-		<!-- Main -->
-		<div id="main">
-			<section id="#">
-				<div class="center">
-					<p><i class="fa fa-exclamation-triangle fa-5x" aria-hidden="true"></i></p>
-					<p>ページが見つかりませんでした</p>
-				</div>
-			</section>
-		</div>
+
+<div id="main" class="py-5">
+  <section>
+    <div class="center text-center my-5">
+      <p><i class="fa fa-exclamation-triangle fa-5x text-warning" aria-hidden="true"></i></p>
+      <p class="fs-5 mt-3">ページが見つかりませんでした<br />特典ファイルはPatreonの各ページのリンクから移動することで表示できます。</p>
+    </div>
+  </section>
+</div>
+
 <?php
 
 $this->load( $this->getViewPath() . "footer.phtml" );
