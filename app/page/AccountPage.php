@@ -48,6 +48,9 @@ class AccountPage extends PTUserPage
 				$smUrl = "https://".$host."/data/sm?f=".$filePath."&k=".$key;
 				$file["sm"] = $smUrl;
 				
+				$gifUrl = "https://".$host."/data/gif?f=".$filePath."&k=".$key."&m=download";
+				$file["gif"] = $gifUrl;
+				
 				$fileList[$index] = $file;
 			}
 			$this->view->fileList = $fileList;

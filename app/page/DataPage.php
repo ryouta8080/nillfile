@@ -146,6 +146,10 @@ class DataPage extends PTUserPage
 			$this->displayNoPermision();
 			return;
 		}
+		if( ! $this->util->isAdmin($this->member)){
+			$this->displayNoPermision();
+			return;
+		}
 		
 		$videoUrl = "https://".$host."/data/file/?f=".$file."&k=".$key."&m=sm";
 		$this->view->video = $videoUrl;
@@ -154,6 +158,69 @@ class DataPage extends PTUserPage
 		$this->view->description = "";
 		
 		//$this->setTemplatePath("index/index.phtml");
+		$this->display();
+	}
+
+	public function gifAction()
+	{
+		if(!$this->member){
+			$this->redirect($this->util->getLoginUrl());
+			return;
+		}
+		$post = $this->getGet(
+			PCF::useParam()
+			->set("f",null, PCV::vString(),PCV::vMaxLength(255))
+			->set("k",null, PCV::vString(),PCV::vMaxLength(255))
+			->set("m","play", PCV::vInArray(["play","download"]))
+		);
+		$file = $post["f"];
+		$key = $post["k"];
+		$mode = $post["m"];
+		
+		$host = "file.nilwork.net";
+		if(isset($_SERVER["HTTP_HOST"])){
+			$host = $_SERVER["HTTP_HOST"];
+		}
+		
+		if( ! $file || ! $key){
+			$this->displayNotFound();
+			return;
+		}
+		
+		$fileConfig = $this->loadFileConfig($file,$key,$mode);
+		if($fileConfig === false){
+			$this->configLoadErrorAction();
+			return;
+		}
+		if(!$fileConfig){
+			$this->displayNotFound();
+			return;
+		}
+		if( ! $this->checkPermision($fileConfig)){
+			$this->displayNoPermision();
+			return;
+		}
+		if( ! $this->util->isAdmin($this->member)){
+			$this->displayNoPermision();
+			return;
+		}
+		
+		$videoUrl = "https://".$host."/data/file/?f=".$file."&k=".$key."&m=sm";
+		$this->view->video = $videoUrl;
+		
+		$this->view->title = "";
+		$this->view->description = "";
+		
+		//$this->setTemplatePath("index/index.phtml");
+		
+		header("Cross-Origin-Opener-Policy: same-origin");
+		header("Cross-Origin-Embedder-Policy: require-corp");
+
+		// キャッシュを無効化（推奨）
+		header("Cache-Control: no-cache, no-store, must-revalidate");
+		header("Pragma: no-cache");
+		header("Expires: 0");
+
 		$this->display();
 	}
 	
@@ -371,7 +438,7 @@ class DataPage extends PTUserPage
 			return true;
 		}
 		
-		if($patreonInfo["status"]){
+		if($patreonInfo["status"] || $patreonInfo["status"] == "active_patron"){
 			return true;
 		}
 		return false;
