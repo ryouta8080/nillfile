@@ -51,6 +51,13 @@ class AccountPage extends PTUserPage
 				$gifUrl = "https://".$host."/data/gif?f=".$filePath."&k=".$key."&m=download";
 				$file["gif"] = $gifUrl;
 				
+				
+				$playlogUrl = "https://".$host."/account/useuser?a=play&c=".$filePath;
+				$file["playlog"] = $playlogUrl;
+				
+				$dllogUrl = "https://".$host."/account/useuser?a=download&c=".$filePath;
+				$file["dllog"] = $dllogUrl;
+				
 				$fileList[$index] = $file;
 			}
 			$this->view->fileList = $fileList;
@@ -67,6 +74,48 @@ class AccountPage extends PTUserPage
 		
 		$this->view->title = "マイページ";
 		$this->display();
+	}
+	
+	public function useuserAction()
+	{
+		if(!$this->member){
+			$this->redirect("/login");
+			return;
+		}
+		
+		$member_id = $this->member["member_id"];
+		
+		if( $this->util->isAdmin($this->member) ){
+			
+			$post = $this->getGet(
+				PCF::useParam()
+				->set("a",null, PCV::vInArray(["play","download"]))
+				->set("c",null, PCV::vString(),PCV::vMaxLength(255))
+			);
+			$action = $post["a"];
+			$code = $post["c"];
+			
+			$model = new ActionHistoryModel();
+			$model->where("action=? and code=?",[$action,$code]);
+			$patreonModel = new MemberPatreonModel();
+			$model->join("target_id",$patreonModel,"id");
+			$model->addCol("count(*)","cnt");
+			$model->addCol("max(action_history.reg_datetime)","last");
+			
+			$model->groupBy(["target_id"]);
+			$data = $model->select();
+			$this->view->list = [];
+			if($data && $data->total > 0){
+				$this->view->list = $data->data;
+			}
+			
+			$this->view->title = "リスト";
+			//$this->setTemplatePath("account/admin.phtml");
+			$this->display();
+			return;
+		}
+		
+		$this->displayNotFound();
 	}
 	
 	public function notfoundAction()
