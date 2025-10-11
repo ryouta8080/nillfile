@@ -31,7 +31,7 @@ $this->load( $this->getViewPath() . "header.phtml" );
   <p>動画URLと、GIFの<strong>長辺</strong>ピクセルを指定してください（未指定は400px）。CORS対応URL推奨。</p>
 
   <input id="videoUrl" type="text" value="<?php $this->h->p($videoUrl); ?>" placeholder="https://example.com/video.mp4">
-  <input id="size" type="number" min="1" step="1" value="500" placeholder="長辺ピクセル（例: 500）">
+  <input id="size" type="number" min="1" step="1" value="400" placeholder="長辺ピクセル（例: 500）">
   <button id="convertBtn">GIFに変換</button>
   <div id="progress" class="progress"></div>
 
@@ -49,62 +49,78 @@ $this->load( $this->getViewPath() . "header.phtml" );
   const downloadLink = document.getElementById('downloadLink');
   const btn = document.getElementById('convertBtn');
 
-  btn.addEventListener('click', async () => {
-    const url = document.getElementById('videoUrl').value.trim();
-    const sizeInput = document.getElementById('size').value.trim();
-    const target = Math.max(1, parseInt(sizeInput || '400', 10)); // デフォルト400
-
-    if (!url) {
-      alert('動画URLを入力してください');
-      return;
+  async function ensureFFmpegLoaded() {
+    if (!ffmpeg.isLoaded()) {
+      progress.textContent = 'FFmpeg読み込み中...';
+      await ffmpeg.load();
     }
+  }
 
-    btn.disabled = true;
-    progress.textContent = 'FFmpeg読み込み中...';
-    preview.style.display = 'none';
-    downloadLink.style.display = 'none';
+  function safeUnlink(path) {
+    try { ffmpeg.FS('unlink', path); } catch (e) { /* 存在しないなら無視 */ }
+  }
 
-    await ffmpeg.load();
+  btn.addEventListener('click', async () => {
+    try {
+      const url = document.getElementById('videoUrl').value.trim();
+      const sizeInput = document.getElementById('size')?.value?.trim() ?? '';
+      const target = Math.max(1, parseInt(sizeInput || '400', 10)); // デフォルト400
 
-    progress.textContent = '動画取得中...';
-    const videoData = await fetchFile(url);
-    ffmpeg.FS('writeFile', 'input.mp4', videoData);
+      if (!url) { alert('動画URLを入力してください'); return; }
 
-    // 長辺を target px にする scale 条件式（横長→ width=target, 縦長→ height=target）
-    // 例: scale='if(gte(iw,ih),400,-1)':'if(gte(iw,ih),-1,400)':flags=lanczos
-    const scaleExpr = `scale='if(gte(iw,ih),${target},-1)':'if(gte(iw,ih),-1,${target})':flags=lanczos`;
+      btn.disabled = true;
+      preview.style.display = 'none';
+      downloadLink.style.display = 'none';
+      progress.textContent = '';
 
-    progress.textContent = '高画質パレット生成中...';
-    await ffmpeg.run(
-      '-i', 'input.mp4',
-      '-vf', `fps=15,${scaleExpr},palettegen`,
-      'palette.png'
-    );
+      // ✅ 2回目以降はロードしない
+      await ensureFFmpegLoaded();
 
-    progress.textContent = `GIF変換中（長辺 ${target}px）...`;
-    await ffmpeg.run(
-      '-i', 'input.mp4',
-      '-i', 'palette.png',
-      '-filter_complex', `fps=15,${scaleExpr}[x];[x][1:v]paletteuse`,
-      '-loop', '0',
-      'output.gif'
-    );
+      progress.textContent = '動画取得中...';
+      const videoData = await fetchFile(url);
 
-    progress.textContent = 'GIF出力中...';
-    const data = ffmpeg.FS('readFile', 'output.gif');
-    const blob = new Blob([data.buffer], { type: 'image/gif' });
-    const gifUrl = URL.createObjectURL(blob);
+      // 前回の生成物を掃除
+      safeUnlink('input.mp4');
+      safeUnlink('palette.png');
+      safeUnlink('output.gif');
 
-    preview.src = gifUrl;
-    preview.style.display = 'block';
-    downloadLink.href = gifUrl;
-    downloadLink.style.display = 'inline-block';
+      ffmpeg.FS('writeFile', 'input.mp4', videoData);
 
-    progress.textContent = '✅ 完了しました！';
-    btn.disabled = false;
+      // 長辺 target px のスケール式
+      const scaleExpr = `scale='if(gte(iw,ih),${target},-1)':'if(gte(iw,ih),-1,${target})':flags=lanczos`;
+
+      progress.textContent = '高画質パレット生成中...';
+      await ffmpeg.run('-i', 'input.mp4', '-vf', `fps=15,${scaleExpr},palettegen`, 'palette.png');
+
+      progress.textContent = `GIF変換中（長辺 ${target}px）...`;
+      await ffmpeg.run(
+        '-i', 'input.mp4',
+        '-i', 'palette.png',
+        '-filter_complex', `fps=15,${scaleExpr}[x];[x][1:v]paletteuse`,
+        '-loop', '0',
+        'output.gif'
+      );
+
+      progress.textContent = 'GIF出力中...';
+      const data = ffmpeg.FS('readFile', 'output.gif');
+      const blob = new Blob([data.buffer], { type: 'image/gif' });
+      const gifUrl = URL.createObjectURL(blob);
+
+      preview.src = gifUrl;
+      preview.style.display = 'block';
+      downloadLink.href = gifUrl;
+      downloadLink.style.display = 'inline-block';
+
+      progress.textContent = '✅ 完了しました！';
+    } catch (e) {
+      console.error(e);
+      progress.textContent = '❌ エラーが発生しました：' + (e?.message || e);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
-  // 自動実行したい場合は以下をON
+  // 自動実行したい場合は有効化
   btn.click();
 })();
 </script>
