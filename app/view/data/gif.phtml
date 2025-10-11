@@ -109,12 +109,12 @@ $this->load( $this->getViewPath() . "header.phtml" );
     // パレットを作成（発色改善）
     await ffmpeg.run('-i', 'input.mp4', '-vf', 'fps=15,scale=600:-1:flags=lanczos,palettegen', 'palette.png');
 
-    progress.textContent = 'GIF変換中（600px縮小）...';
+    progress.textContent = 'GIF変換中（400px縮小）...';
     // パレットを使って高画質GIFを生成
     await ffmpeg.run(
       '-i', 'input.mp4',
       '-i', 'palette.png',
-      '-filter_complex', 'fps=15,scale=600:-1:flags=lanczos[x];[x][1:v]paletteuse',
+      '-filter_complex', 'fps=15,scale=400:-1:flags=lanczos[x];[x][1:v]paletteuse',
       '-loop', '0', 'output.gif'
     );
 
