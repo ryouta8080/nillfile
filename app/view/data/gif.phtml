@@ -2,74 +2,36 @@
 $videoUrl = $this->view->video;
 
 $this->load( $this->getViewPath() . "header.phtml" );
-
 ?>
   <style>
     body {
       font-family: "Segoe UI", sans-serif;
       background: #f4f4f4;
-      margin: 0;
-      padding: 20px;
-      color: #333;
+      margin: 0; padding: 20px; color: #333;
     }
-    .container {
-      max-width: 800px;
-      margin: auto;
-      background: #fff;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    .container { max-width: 800px; margin: auto; background: #fff; padding: 20px;
+      border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    input, button { font-size: 1rem; }
+    input[type="text"], input[type="number"] {
+      width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 10px;
     }
-    input, button {
-      font-size: 1rem;
-    }
-    input[type="text"] {
-      width: 100%;
-      padding: 10px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-      margin-bottom: 10px;
-    }
-    button {
-      background: #0078d7;
-      color: #fff;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: 0.2s;
-    }
-    button:hover {
-      background: #005fa3;
-    }
-    .progress {
-      margin-top: 10px;
-      font-size: 0.9rem;
-      color: #555;
-    }
-    img {
-      max-width: 100%;
-      margin-top: 20px;
-      border-radius: 8px;
-      border: 1px solid #ccc;
-    }
-    a.download-link {
-      display: inline-block;
-      margin-top: 10px;
-      text-decoration: none;
-      background: #28a745;
-      color: #fff;
-      padding: 8px 16px;
-      border-radius: 6px;
-    }
+    button { background: #0078d7; color: #fff; border: none; padding: 10px 20px;
+      border-radius: 6px; cursor: pointer; transition: 0.2s; }
+    button:hover { background: #005fa3; }
+    .progress { margin-top: 10px; font-size: 0.9rem; color: #555; }
+    img { max-width: 100%; margin-top: 20px; border-radius: 8px; border: 1px solid #ccc; }
+    a.download-link { display: inline-block; margin-top: 10px; text-decoration: none;
+      background: #28a745; color: #fff; padding: 8px 16px; border-radius: 6px; }
   </style>
+  <!-- 既存の非モジュール版をそのまま利用 -->
   <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.9.4/dist/ffmpeg.min.js"></script>
-  
+
 <div class="container">
   <h2>🎬 MP4 → GIF 変換</h2>
-  <p>動画のURLを入力してください（CORS対応URLを推奨）。</p>
+  <p>動画URLと、GIFの<strong>長辺</strong>ピクセルを指定してください（未指定は400px）。CORS対応URL推奨。</p>
 
-  <input id="videoUrl" type="text" value="<?php $this->h->p($videoUrl); ?>">
+  <input id="videoUrl" type="text" value="<?php $this->h->p($videoUrl); ?>" placeholder="https://example.com/video.mp4">
+  <input id="size" type="number" min="1" step="1" value="500" placeholder="長辺ピクセル（例: 500）">
   <button id="convertBtn">GIFに変換</button>
   <div id="progress" class="progress"></div>
 
@@ -89,12 +51,15 @@ $this->load( $this->getViewPath() . "header.phtml" );
 
   btn.addEventListener('click', async () => {
     const url = document.getElementById('videoUrl').value.trim();
+    const sizeInput = document.getElementById('size').value.trim();
+    const target = Math.max(1, parseInt(sizeInput || '400', 10)); // デフォルト400
+
     if (!url) {
       alert('動画URLを入力してください');
       return;
     }
 
-   btn.disabled = true;
+    btn.disabled = true;
     progress.textContent = 'FFmpeg読み込み中...';
     preview.style.display = 'none';
     downloadLink.style.display = 'none';
@@ -105,17 +70,24 @@ $this->load( $this->getViewPath() . "header.phtml" );
     const videoData = await fetchFile(url);
     ffmpeg.FS('writeFile', 'input.mp4', videoData);
 
-    progress.textContent = '高画質パレット生成中...';
-    // パレットを作成（発色改善）
-    await ffmpeg.run('-i', 'input.mp4', '-vf', 'fps=15,scale=600:-1:flags=lanczos,palettegen', 'palette.png');
+    // 長辺を target px にする scale 条件式（横長→ width=target, 縦長→ height=target）
+    // 例: scale='if(gte(iw,ih),400,-1)':'if(gte(iw,ih),-1,400)':flags=lanczos
+    const scaleExpr = `scale='if(gte(iw,ih),${target},-1)':'if(gte(iw,ih),-1,${target})':flags=lanczos`;
 
-    progress.textContent = 'GIF変換中（400px縮小）...';
-    // パレットを使って高画質GIFを生成
+    progress.textContent = '高画質パレット生成中...';
+    await ffmpeg.run(
+      '-i', 'input.mp4',
+      '-vf', `fps=15,${scaleExpr},palettegen`,
+      'palette.png'
+    );
+
+    progress.textContent = `GIF変換中（長辺 ${target}px）...`;
     await ffmpeg.run(
       '-i', 'input.mp4',
       '-i', 'palette.png',
-      '-filter_complex', 'fps=15,scale=400:-1:flags=lanczos[x];[x][1:v]paletteuse',
-      '-loop', '0', 'output.gif'
+      '-filter_complex', `fps=15,${scaleExpr}[x];[x][1:v]paletteuse`,
+      '-loop', '0',
+      'output.gif'
     );
 
     progress.textContent = 'GIF出力中...';
@@ -131,13 +103,12 @@ $this->load( $this->getViewPath() . "header.phtml" );
     progress.textContent = '✅ 完了しました！';
     btn.disabled = false;
   });
-  
+
+  // 自動実行したい場合は以下をON
   btn.click();
 })();
 </script>
 
 <?php
-
 $this->load( $this->getViewPath() . "footer.phtml" );
-
 ?>
