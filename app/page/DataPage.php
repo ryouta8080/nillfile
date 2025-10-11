@@ -242,9 +242,9 @@ class DataPage extends PTUserPage
 		
 		//ログ
 		if($mode == "play"){
-			$this->util->addPlayHistory($fileName, $fileConfig["path"], $this->member);
+			$this->util->addPlayHistory($fileName, $file, $this->member);
 		}else if($mode == "download"){
-			$this->util->addDownloadHistory($fileName, $fileConfig["path"], $this->member);
+			$this->util->addDownloadHistory($fileName, $file, $this->member);
 		}
 
 		// MIMEタイプを自動判別（動画や画像など再生可能なものはブラウザで再生される）

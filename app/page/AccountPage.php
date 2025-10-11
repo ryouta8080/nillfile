@@ -52,6 +52,13 @@ class AccountPage extends PTUserPage
 			}
 			$this->view->fileList = $fileList;
 			
+			$this->view->countData = null;
+			$action = new ActionCountModel();
+			$actionData = $action->select();
+			if($actionData && $actionData->total > 0){
+				$this->view->countData = $actionData->data;
+			}
+			
 			$this->setTemplatePath("account/admin.phtml");
 		}
 		
