@@ -218,17 +218,14 @@ $bookmarkletUrl = $this->view->bookmarkletUrl;
   function buildBookmarklet(rawCode) {
     var min = minifyCode(rawCode);
 
-    // 既に "javascript:" で始まる場合はそのまま使う
     if (/^\s*javascript:/i.test(min)) {
       return min.trim();
     }
 
-    // もし既に即時関数形式なら、そのまま javascript: を付けるだけでもOK
     if (/^\s*\(async function\b|\s*\(function\b/.test(min)) {
       return 'javascript:' + min;
     }
 
-    // それ以外は IIFE でラップ
     return 'javascript:(function(){' + min + '})();';
   }
 
@@ -236,7 +233,6 @@ $bookmarkletUrl = $this->view->bookmarkletUrl;
     if (statusEl) statusEl.textContent = msg;
   }
 
-  // スクリプト取得
   setStatus('ブックマークレット用スクリプトを読み込み中…');
 
   fetch(bookmarkletUrl)
@@ -265,12 +261,10 @@ $bookmarkletUrl = $this->view->bookmarkletUrl;
       return;
     }
 
-    // disabledだと選択できないので、いったん readonly にしてコピー → 戻す手もあるが、
-    // ここでは value から直接コピーする（Clipboard API優先）。
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(code)
         .then(function () {
-          alert('ブックマークレットのコードをコピーしました。');
+          alert('ブックマークレットをコピーしました。');
         })
         .catch(function () {
           fallbackCopy(code);
@@ -281,7 +275,6 @@ $bookmarkletUrl = $this->view->bookmarkletUrl;
   });
 
   function fallbackCopy(text) {
-    // 一時的な入力を使ってコピー
     var temp = document.createElement('textarea');
     temp.style.position = 'fixed';
     temp.style.left = '-9999px';
@@ -290,7 +283,7 @@ $bookmarkletUrl = $this->view->bookmarkletUrl;
     temp.select();
     try {
       document.execCommand('copy');
-      alert('ブックマークレットのコードをコピーしました。');
+      alert('ブックマークレットをコピーしました。');
     } catch (e) {
       alert('コピーに失敗しました。手動で選択してコピーしてください。');
     }
