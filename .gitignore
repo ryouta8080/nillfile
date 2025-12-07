@@ -5,8 +5,8 @@ composer.phar
 /node_modules/
 
 /app/res/content/
-!/app/res/content/bookmarklet
-!/app/res/content/bookmarklet/*
+!/app/res/content/bookmarklet/
+!/app/res/content/bookmarklet/**
 
 /auth.json
 
