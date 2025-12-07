@@ -77,6 +77,8 @@ class DataPage extends PTUserPage
 			return;
 		}
 		
+		list($fileType, $virtualPath) = $this->parseFileType($file);
+		
 		$fileConfig = $this->loadFileConfig($file,$key,$mode);
 		if($fileConfig === false){
 			$this->configLoadErrorAction();
@@ -91,20 +93,79 @@ class DataPage extends PTUserPage
 			return;
 		}
 		
-		$embedUrl = "https://".$host."/data/embed/?f=".$file."&k=".$key."&m=".$mode;
-		$this->view->embed = $embedUrl;
+		$this->view->fileType = $fileType;
 		
-		$videoUrl = "https://".$host."/data/file/?f=".$file."&k=".$key."&m=".$mode;
-		$this->view->video = $videoUrl;
+		$baseEmbedUrl    = "https://" . $host . "/data/embed/?f=" . rawurlencode($file) . "&k=" . rawurlencode($key) . "&m=" . rawurlencode($mode);
+		$baseFileUrl     = "https://" . $host . "/data/file/?f=" . rawurlencode($file) . "&k=" . rawurlencode($key) . "&m=" . rawurlencode($mode);
+		$baseDownloadUrl = "https://" . $host . "/data/file/?f=" . rawurlencode($file) . "&k=" . rawurlencode($key) . "&m=download";
 		
-		$downloadUrl = "https://".$host."/data/file/?f=".$file."&k=".$key."&m=download";
-		$this->view->download = $downloadUrl;
+		switch ($fileType) {
+			case 'movie':
+				// 動画プレイヤー用
+				$this->view->embed    = $baseEmbedUrl;
+				$this->view->video    = $baseFileUrl;
+				$this->view->download = $baseDownloadUrl;
+				break;
+
+			case 'image':
+				//未実装
+				$this->displayNotFound();
+				return;
+				// 画像ビューア用
+				$this->view->imageUrl    = $baseFileUrl;
+				$this->view->downloadUrl = $baseDownloadUrl;
+
+				$this->setTemplatePath("data/player_image.phtml");
+				break;
+			case 'file':
+				//未実装
+				$this->displayNotFound();
+				return;
+				// 通常ファイル(DLリンクのみ等)
+				$this->view->fileUrl     = $baseFileUrl;
+				$this->view->downloadUrl = $baseDownloadUrl;
+
+				$this->setTemplatePath("data/player_file.phtml");
+				break;
+			case 'zip':
+				//未実装
+				$this->displayNotFound();
+				return;
+				// ZIPは基本DLのみ・埋め込みなし、など
+				$this->view->zipUrl      = $baseFileUrl;
+				$this->view->downloadUrl = $baseDownloadUrl;
+
+				$this->setTemplatePath("data/player_zip.phtml");
+				break;
+
+			case 'bookmarklet':
+				$this->view->bookmarkletUrl = $baseFileUrl;
+				$this->setTemplatePath("/data/player_bookmarklet.phtml");
+				$this->view->scriptTitle = $fileConfig["title"];
+				$this->view->scriptDesc = $fileConfig["desc"];
+				break;
+		}
 		
 		$this->view->title = "";
 		$this->view->description = "";
 		
-		//$this->setTemplatePath("index/index.phtml");
 		$this->display();
+	}
+	protected function parseFileType($file)
+	{
+		$file = (string)$file;
+		$parts = explode(':', $file, 2);
+
+		if (count($parts) === 2) {
+			$type = $parts[0];
+			$path = $parts[1];
+		} else {
+			// タイプ指定が無い場合は既存互換のため file とみなす
+			$type = 'file';
+			$path = $parts[0];
+		}
+
+		return [$type, $path];
 	}
 	
 	public function smAction()
@@ -350,7 +411,7 @@ class DataPage extends PTUserPage
 		
 		$type = $d[0];
 		$path = $d[1];
-		if($type != "movie" && $type != "image" && $type != "zip" && $type != "file"){
+		if($type != "movie" && $type != "image" && $type != "zip" && $type != "file" && $type != "bookmarklet" ){
 			return null;
 		}
 		

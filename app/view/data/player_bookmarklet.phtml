@@ -1,0 +1,302 @@
+<?php
+$bookmarkletUrl = $this->view->bookmarkletUrl;
+?>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <?php if (!empty($this->view->scriptTitle)): ?>
+    <title>
+      <?php $this->h->p($this->view->scriptTitle); ?>
+    </title>
+  <?php else: ?>
+    <title>
+      ブックマークレット
+    </title>
+  <?php endif; ?>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      color: #222;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px 20px 24px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+    .status {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+    .bookmarklet-box {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .bookmarklet-box input {
+      flex: 1;
+      padding: 8px 10px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      background: #f3f3f3;
+      color: #333;
+    }
+    .bookmarklet-box button {
+      flex-shrink: 0;
+      padding: 0 14px;
+      font-size: 13px;
+      border-radius: 4px;
+      border: none;
+      background: #007bff;
+      color: #fff;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .bookmarklet-box button:hover {
+      background: #005ecc;
+    }
+    .notice {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 16px;
+    }
+    h2 {
+      font-size: 16px;
+      margin: 20px 0 8px;
+    }
+    h3 {
+      font-size: 14px;
+      margin: 14px 0 6px;
+    }
+    p {
+      font-size: 13px;
+      line-height: 1.7;
+      margin: 4px 0 8px;
+    }
+    ul {
+      margin: 4px 0 12px 1.2em;
+      padding: 0;
+      font-size: 13px;
+    }
+    li {
+      margin-bottom: 4px;
+    }
+    code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      background: #f0f0f0;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <?php if (!empty($this->view->scriptTitle)): ?>
+    <h1 style="margin: 0 0 10px; font-size: 22px;">
+      <?php $this->h->p($this->view->scriptTitle); ?>
+    </h1>
+  <?php else: ?>
+    <h1 style="margin: 0 0 10px; font-size: 22px;">
+      ブックマークレット
+    </h1>
+  <?php endif; ?>
+
+  <?php if (!empty($this->view->scriptDesc)): ?>
+    <p style="margin-top: 4px; font-size: 14px; color: #555; line-height: 1.7;">
+      <?php $this->h->p($this->view->scriptDesc); ?>
+    </p>
+  <?php endif; ?>
+
+  <div class="status" id="status">スクリプトを読み込み中です…</div>
+
+  <div class="bookmarklet-box">
+    <input
+      id="bookmarkletInput"
+      type="text"
+      value=""
+      readonly
+      disabled
+    />
+    <button id="copyBtn" type="button">コピー</button>
+  </div>
+  <div class="notice">
+    
+  </div>
+
+  <h2>ブックマークレットとは？</h2>
+  <p>
+    ブックマークレットは、<strong>ブラウザのお気に入り（ブックマーク）に保存して使う小さなプログラム</strong>です。<br>
+    通常のブックマークは「ページのURL」を保存しますが、ブックマークレットは
+    <strong>「JavaScriptのコード」</strong>を保存して、押したタイミングでそのページ上で処理を実行します。
+  </p>
+
+  <h2>使い方</h2>
+
+  <h3>Windows（Chrome / Edge / Firefoxなど）</h3>
+  <ul>
+    <li>1. ブラウザでブックマークバー（お気に入りバー）を表示します。<br>
+      例：Chrome なら <code>Ctrl + Shift + B</code> で表示/非表示を切り替えられます。
+    </li>
+    <li>2. ブックマークバーの空いているところを右クリックして「ページを追加」や「ブックマークを追加」を選びます。</li>
+    <li>3. 名前はわかりやすい名前（例：<code>Patreon画像保存</code> など）を入力し、URL（アドレス）の欄に、上の入力欄のコードをコピーして貼り付けます。</li>
+    <li>4. 保存したら、<strong>実行したいページを開いた状態で</strong>、ブックマークバーのそのブックマークレットをクリックすると実行されます。</li>
+  </ul>
+
+  <h3>iOS（iPhone / iPad の Safari）</h3>
+  <ul>
+    <li>1. Safari でこのページを開き、上のコードをコピーしておきます。</li>
+    <li>2. 適当なページを開き、共有ボタン（□に↑のアイコン）から「ブックマークを追加」を選びます。</li>
+    <li>3. 名前をわかりやすい名前（例：<code>Patreon画像保存</code> など）に変更し、一旦保存します。</li>
+    <li>4. もう一度 Safari のブックマークを開き、今作ったブックマークを編集します。</li>
+    <li>5. アドレス（URL）の欄を全て削除して、コピーしておいたコードを貼り付けて保存します。</li>
+    <li>6. 実行したいページを開いた状態で、そのブックマークをタップするとブックマークレットが実行されます。</li>
+  </ul>
+
+  <h3>Android（Google Chrome）</h3>
+  <ul>
+    <li>1. Chrome でこのページを開き、上のコードをコピーしておきます。</li>
+    <li>2. 適当なページを開き、右上の「︙」メニューから「☆ ブックマーク」などをタップしてブックマークを追加します。</li>
+    <li>3. このとき「名前」の欄に、あとで分かりやすい名前（例：<code>Patreon画像保存</code> など）を入力して保存します。</li>
+    <li>4. 追加したブックマークを「ブックマーク」画面から探し、長押しして「編集」を選びます。</li>
+    <li>5. アドレス（URL）の欄を全て削除して、コピーしておいたコードを貼り付けて保存します。</li>
+    <li>6. 実行したいページを開いた状態で、そのブックマークをタップするとブックマークレットが実行されます。</li>
+  </ul>
+
+</div>
+
+<script>
+(function () {
+  // PHP から渡されたスクリプトURL
+  var bookmarkletUrl = <?php echo json_encode($bookmarkletUrl, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+
+  var inputEl  = document.getElementById('bookmarkletInput');
+  var copyBtn  = document.getElementById('copyBtn');
+  var statusEl = document.getElementById('status');
+
+  if (!bookmarkletUrl) {
+    statusEl.textContent = 'ブックマークレット用スクリプトのURLが設定されていません。';
+    inputEl.value = '';
+    return;
+  }
+
+  // 簡易的な圧縮：ブロックコメントと改行・余分な空白を削る
+  function minifyCode(code) {
+    // /* ... */ コメント削除
+    code = code.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    // // 行コメント削除（http://, https:// は残す）
+    code = code.replace(/(^|\s)\/\/[^\n\r]*/g, '$1');
+
+    // 改行をスペースへ置換（1行化のため）
+    code = code.replace(/\r?\n+/g, ' ');
+
+    // 複数スペースを 1 個にする（必要なスペースは残る）
+    code = code.replace(/\s{2,}/g, ' ');
+
+    // 先頭・末尾の空白を除去
+    return code.trim();
+  }
+
+  function buildBookmarklet(rawCode) {
+    var min = minifyCode(rawCode);
+
+    // 既に "javascript:" で始まる場合はそのまま使う
+    if (/^\s*javascript:/i.test(min)) {
+      return min.trim();
+    }
+
+    // もし既に即時関数形式なら、そのまま javascript: を付けるだけでもOK
+    if (/^\s*\(async function\b|\s*\(function\b/.test(min)) {
+      return 'javascript:' + min;
+    }
+
+    // それ以外は IIFE でラップ
+    return 'javascript:(function(){' + min + '})();';
+  }
+
+  function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+  }
+
+  // スクリプト取得
+  setStatus('ブックマークレット用スクリプトを読み込み中…');
+
+  fetch(bookmarkletUrl)
+    .then(function (res) {
+      if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+      }
+      return res.text();
+    })
+    .then(function (text) {
+      var bookmarkletCode = buildBookmarklet(text);
+      inputEl.value = bookmarkletCode;
+      setStatus('このコードをブックマークに登録して使用してください。');
+    })
+    .catch(function (err) {
+      console.error(err);
+      setStatus('スクリプトの取得に失敗しました。しばらくしてから再度お試しください。');
+      inputEl.value = '';
+    });
+
+  // コピー動作
+  copyBtn.addEventListener('click', function () {
+    var code = inputEl.value;
+    if (!code) {
+      alert('コピーするコードがありません。スクリプトの読み込みに失敗している可能性があります。');
+      return;
+    }
+
+    // disabledだと選択できないので、いったん readonly にしてコピー → 戻す手もあるが、
+    // ここでは value から直接コピーする（Clipboard API優先）。
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code)
+        .then(function () {
+          alert('ブックマークレットのコードをコピーしました。');
+        })
+        .catch(function () {
+          fallbackCopy(code);
+        });
+    } else {
+      fallbackCopy(code);
+    }
+  });
+
+  function fallbackCopy(text) {
+    // 一時的な入力を使ってコピー
+    var temp = document.createElement('textarea');
+    temp.style.position = 'fixed';
+    temp.style.left = '-9999px';
+    temp.value = text;
+    document.body.appendChild(temp);
+    temp.select();
+    try {
+      document.execCommand('copy');
+      alert('ブックマークレットのコードをコピーしました。');
+    } catch (e) {
+      alert('コピーに失敗しました。手動で選択してコピーしてください。');
+    }
+    document.body.removeChild(temp);
+  }
+})();
+</script>
+</body>
+</html>
