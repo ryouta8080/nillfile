@@ -78,6 +78,9 @@ class DataPage extends PTUserPage
 		}
 		
 		list($fileType, $virtualPath) = $this->parseFileType($file);
+		if ($fileType === 'zip' && $mode !== 'download') {
+			$mode = 'download';
+		}
 		
 		$fileConfig = $this->loadFileConfig($file,$key,$mode);
 		if($fileConfig === false){
@@ -108,34 +111,18 @@ class DataPage extends PTUserPage
 				break;
 
 			case 'image':
-				//未実装
-				$this->displayNotFound();
-				return;
 				// 画像ビューア用
-				$this->view->imageUrl    = $baseFileUrl;
-				$this->view->downloadUrl = $baseDownloadUrl;
-
+				$this->view->fileType    = 'image';
+				$this->view->imageUrl    = $baseFileUrl;       // inline表示（m=play）
+				$this->view->downloadUrl = $baseDownloadUrl;   // attachment（m=download）
 				$this->setTemplatePath("data/player_image.phtml");
 				break;
 			case 'file':
-				//未実装
-				$this->displayNotFound();
-				return;
-				// 通常ファイル(DLリンクのみ等)
-				$this->view->fileUrl     = $baseFileUrl;
-				$this->view->downloadUrl = $baseDownloadUrl;
-
-				$this->setTemplatePath("data/player_file.phtml");
-				break;
 			case 'zip':
-				//未実装
-				$this->displayNotFound();
-				return;
-				// ZIPは基本DLのみ・埋め込みなし、など
-				$this->view->zipUrl      = $baseFileUrl;
+				$this->view->fileType    = $fileType;          // 'file' or 'zip'
 				$this->view->downloadUrl = $baseDownloadUrl;
-
-				$this->setTemplatePath("data/player_zip.phtml");
+				$this->view->fileUrl     = $baseFileUrl;       // inlineで開く用途（使わなくてもOK）
+				$this->setTemplatePath("data/player_download.phtml");
 				break;
 
 			case 'bookmarklet':
@@ -467,6 +454,17 @@ class DataPage extends PTUserPage
 		
 		$path = implode("/",$pathList);
 		$realPath = $realPathBase . $path;
+		
+		if ($type === 'zip' && (!file_exists($realPath) || !is_file($realPath))) {
+			if (isset($node['files']) && is_array($node['files']) && !empty($node['files'])) {
+				$ok = $this->generateZipIfNeeded($realPathBase, $realPath, $node['files']);
+				if (!$ok) {
+					// 生成失敗はサーバ側の問題なので false（CONFIG_ERROR 扱い）にする
+					return false;
+				}
+			}
+		}
+		
 		if( ! file_exists($realPath) || !is_file($realPath) ){
 			return null;
 		}
@@ -475,6 +473,114 @@ class DataPage extends PTUserPage
 		$node['path'] = $path;
 		return $node;
 	}
+	
+	/**
+	 * files 設定から zip を生成（無ければ作る）
+	 * @param string $realPathBase 例: app/res/content/
+	 * @param string $zipRealPath  例: app/res/content/zip/kasumi_1.zip
+	 * @param array  $filesConfig  例: ["kasumi_*.mp4"=>["path"=>"movie/kasumi_*.mp4"], ...]
+	 * @return bool
+	 */
+	private function generateZipIfNeeded(string $realPathBase, string $zipRealPath, array $filesConfig): bool
+	{
+		// zip 出力先ディレクトリを用意
+		$dir = dirname($zipRealPath);
+		if (!is_dir($dir)) {
+			if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
+				return false;
+			}
+		}
+
+		// 念のためベース外を書けないようにチェック
+		$baseReal = realpath($realPathBase);
+		if ($baseReal === false) return false;
+
+		// 既に存在していてファイルなら何もしない
+		if (file_exists($zipRealPath) && is_file($zipRealPath)) {
+			return true;
+		}
+
+		// 一時ファイルに作ってから置き換える（途中失敗で壊れたzipが残らない）
+		$tmp = $zipRealPath . '.tmp_' . bin2hex(random_bytes(4));
+
+		$zip = new ZipArchive();
+		if ($zip->open($tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+			return false;
+		}
+
+		$added = 0;
+		$addedNames = [];
+
+		foreach ($filesConfig as $zipEntryName => $info) {
+			if (!is_array($info)) continue;
+			$virtual = (string)($info['path'] ?? '');
+			$virtual = trim($virtual);
+
+			if ($virtual === '') continue;
+
+			// パス正規化（危険なもの排除）
+			$virtual = ltrim($virtual, '/');
+			$virtual = str_replace(['../', '..\\'], '', $virtual);
+			$virtual = preg_replace('#/+#', '/', $virtual);
+
+			// 例: movie/kasumi_*.mp4 → 実パスパターンへ
+			$pattern = rtrim($realPathBase, '/') . '/' . $virtual;
+
+			// glob（ワイルドカード対応）
+			$matches = glob($pattern, GLOB_NOSORT);
+			if (!$matches) continue;
+
+			$isZipNameWildcard = (strpos($zipEntryName, '*') !== false) || (strpos($zipEntryName, '?') !== false);
+
+			foreach ($matches as $filePath) {
+				// 実在チェック
+				if (!is_file($filePath)) continue;
+
+				// ベース配下かチェック（zipスリップ等を防ぐ）
+				$real = realpath($filePath);
+				if ($real === false) continue;
+				if (strpos($real, $baseReal . DIRECTORY_SEPARATOR) !== 0 && $real !== $baseReal) {
+					continue;
+				}
+
+				// zip内のファイル名
+				// - zipEntryName がワイルドカードなら、実ファイルの basename を採用
+				// - そうでなければ、zipEntryName を採用
+				$entryName = $isZipNameWildcard ? basename($real) : (string)$zipEntryName;
+
+	            // zip内に危険なパスを入れない
+				$entryName = str_replace(['\\', "\0"], ['/', ''], $entryName);
+				$entryName = ltrim($entryName, '/');
+				if ($entryName === '' || strpos($entryName, '../') !== false) continue;
+
+				// 同名重複を避ける（後勝ちにしたいならここを変えてください）
+				if (isset($addedNames[$entryName])) continue;
+
+				if ($zip->addFile($real, $entryName)) {
+					$added++;
+					$addedNames[$entryName] = true;
+				}
+			}
+		}
+
+		$zip->close();
+
+		// 1件も入らなかったら失敗扱い（空zipを作りたくない場合）
+		if ($added <= 0) {
+			@unlink($tmp);
+			return false;
+		}
+
+		// アトミックに差し替え
+		if (!rename($tmp, $zipRealPath)) {
+			@unlink($tmp);
+			return false;
+		}
+
+		return true;
+	}
+
+	
 	public function checkPermision($fileConfig){
 		$isFree = false;
 		if($fileConfig["plan"] == "free"){
