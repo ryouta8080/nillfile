@@ -78,9 +78,6 @@ class DataPage extends PTUserPage
 		}
 		
 		list($fileType, $virtualPath) = $this->parseFileType($file);
-		if ($fileType === 'zip' && $mode !== 'download') {
-			$mode = 'download';
-		}
 		
 		$fileConfig = $this->loadFileConfig($file,$key,$mode);
 		if($fileConfig === false){
