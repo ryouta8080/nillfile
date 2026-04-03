@@ -1,0 +1,725 @@
+<?php
+$vrTitle = $this->view->vrTitle ?? '';
+$imagePresets = $this->view->vrImagePresets ?? [];
+if (!is_array($imagePresets)) {
+  $imagePresets = [];
+}
+$presetCount = count($imagePresets);
+?>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title><?php echo htmlspecialchars($vrTitle ?: 'VR Viewer', ENT_QUOTES, 'UTF-8'); ?></title>
+  <style>
+    :root{
+      --panel-bg: rgba(10,10,14,.74);
+      --panel-border: rgba(255,255,255,.14);
+      --text: #fff;
+      --muted: rgba(255,255,255,.72);
+      --accent: #4cc9f0;
+      --accent-weak: rgba(76,201,240,.18);
+    }
+    *{ box-sizing:border-box; }
+    html,body{
+      margin:0; width:100%; height:100%; overflow:hidden; background:#000; color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      touch-action:none;
+    }
+    #app, #viewer { position:fixed; inset:0; }
+    #viewer canvas { display:block; width:100%; height:100%; }
+
+    #menu{
+      position:fixed;
+      top:calc(12px + env(safe-area-inset-top));
+      left:calc(12px + env(safe-area-inset-left));
+      z-index:20;
+      width:min(340px, calc(100vw - 24px));
+      max-height:calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px);
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      touch-action:pan-y;
+      background:var(--panel-bg);
+      border:1px solid var(--panel-border);
+      border-radius:16px;
+      padding:12px;
+      backdrop-filter: blur(12px);
+      box-shadow:0 10px 30px rgba(0,0,0,.35);
+    }
+    #menu.hidden{ display:none; }
+
+    .title{ font-size:15px; font-weight:700; margin:0 0 6px; }
+    .subtitle{ font-size:12px; color:var(--muted); margin:0 0 10px; word-break:break-all; }
+    .row{ margin:0 0 12px; }
+    .label{ display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+    .buttons{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .buttons.single{ grid-template-columns:1fr; }
+
+    button{
+      width:100%; min-height:42px; border-radius:12px; border:1px solid var(--panel-border);
+      background:rgba(255,255,255,.06); color:#fff; padding:10px 12px; font-size:14px;
+    }
+
+    .switch-group{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:8px;
+      padding:6px;
+      background:rgba(255,255,255,.05);
+      border:1px solid var(--panel-border);
+      border-radius:14px;
+    }
+    .switch-group.multi{
+      grid-template-columns:1fr;
+    }
+    .switch-option{
+      min-height:42px;
+      border-radius:10px;
+      border:1px solid transparent;
+      background:transparent;
+      color:#fff;
+      font-size:14px;
+      cursor:pointer;
+      text-align:center;
+    }
+    .switch-option.active{
+      background:var(--accent-weak);
+      border-color:rgba(76,201,240,.45);
+      font-weight:600;
+    }
+
+    #loadingOverlay{
+      position:fixed;
+      inset:0;
+      z-index:30;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,0,0,.45);
+      backdrop-filter: blur(4px);
+      pointer-events:none;
+    }
+    #loadingOverlay.show{ display:flex; }
+    #loadingCard{
+      min-width:220px;
+      max-width:calc(100vw - 40px);
+      padding:16px 18px;
+      background:rgba(10,10,14,.88);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:16px;
+      box-shadow:0 10px 30px rgba(0,0,0,.35);
+      text-align:center;
+    }
+    #loadingSpinner{
+      width:34px;
+      height:34px;
+      margin:0 auto 12px;
+      border-radius:50%;
+      border:3px solid rgba(255,255,255,.18);
+      border-top-color: var(--accent);
+      animation: spin 0.9s linear infinite;
+    }
+    #loadingText{
+      font-size:13px;
+      color:var(--text);
+    }
+    @keyframes spin{
+      from{ transform:rotate(0deg); }
+      to{ transform:rotate(360deg); }
+    }
+
+    #revealHint{
+      position:fixed; inset:auto 50% calc(18px + env(safe-area-inset-bottom)) auto;
+      transform:translateX(50%);
+      z-index:15;
+      background:rgba(0,0,0,.48);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:999px;
+      padding:8px 12px;
+      font-size:12px;
+      color:#fff;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .2s ease;
+      white-space:nowrap;
+    }
+    #revealHint.show{ opacity:1; }
+
+    @media (max-width: 560px){
+      .buttons, .switch-group{ grid-template-columns:1fr; }
+      #menu{ width:min(320px, calc(100vw - 24px)); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="viewer"></div>
+
+  <div id="menu">
+    <div class="title">VR Viewer</div>
+    <div class="subtitle"><?php echo htmlspecialchars((string)$vrTitle, ENT_QUOTES, 'UTF-8'); ?></div>
+
+    <div class="row" id="imagePresetRow" <?php if ($presetCount <= 1): ?>style="display:none"<?php endif; ?>>
+      <div class="label">画像切り替え</div>
+      <div class="switch-group multi" id="imageSwitchGroup" role="tablist" aria-label="画像切り替え">
+        <?php foreach ($imagePresets as $index => $preset): ?>
+          <?php
+            $label = '';
+            if (is_array($preset) && isset($preset['label']) && $preset['label'] !== '') {
+              $label = (string)$preset['label'];
+            } else {
+              $label = (string)($index + 1);
+            }
+          ?>
+          <button
+            type="button"
+            class="switch-option<?php echo $index === 0 ? ' active' : ''; ?>"
+            aria-pressed="<?php echo $index === 0 ? 'true' : 'false'; ?>"
+            data-preset-index="<?php echo (int)$index; ?>"
+          ><?php echo htmlspecialchars($label, ENT_QUOTES, 'UTF-8'); ?></button>
+        <?php endforeach; ?>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">操作モード</div>
+      <div class="switch-group" id="modeSwitch" role="tablist" aria-label="操作モード">
+        <button id="dragModeBtn" class="switch-option active" type="button" aria-pressed="true">ドラッグ</button>
+        <button id="gyroModeBtn" class="switch-option" type="button" aria-pressed="false">ジャイロ</button>
+      </div>
+    </div>
+
+    <div class="row buttons">
+      <button id="recenterBtn" type="button">向きをリセット</button>
+      <button id="resetZoomBtn" type="button">ズームをリセット</button>
+    </div>
+
+    <div class="row buttons">
+      <button id="fullscreenBtn" type="button">全画面</button>
+      <button id="vrBtn" type="button">VR</button>
+    </div>
+  </div>
+
+  <div id="loadingOverlay">
+    <div id="loadingCard">
+      <div id="loadingSpinner"></div>
+      <div id="loadingText">画像を読み込み中...</div>
+    </div>
+  </div>
+
+  <div id="revealHint">タップでメニューを表示</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(function () {
+  const IMAGE_PRESETS = <?php echo json_encode($imagePresets, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+
+  const viewer = document.getElementById('viewer');
+  const menu = document.getElementById('menu');
+  const revealHint = document.getElementById('revealHint');
+  const recenterBtn = document.getElementById('recenterBtn');
+  const fullscreenBtn = document.getElementById('fullscreenBtn');
+  const resetZoomBtn = document.getElementById('resetZoomBtn');
+  const vrBtn = document.getElementById('vrBtn');
+  const dragModeBtn = document.getElementById('dragModeBtn');
+  const gyroModeBtn = document.getElementById('gyroModeBtn');
+  const imagePresetRow = document.getElementById('imagePresetRow');
+  const imageSwitchGroup = document.getElementById('imageSwitchGroup');
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const loadingText = document.getElementById('loadingText');
+
+  const zee = new THREE.Vector3(0, 0, 1);
+  const euler = new THREE.Euler();
+  const q0 = new THREE.Quaternion();
+  const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+  const state = {
+    yaw: 0,
+    pitch: 0,
+    fov: 60,
+    initialFov: 60,
+    minFov: 18,
+    maxFov: 90,
+    mode: 'drag',
+    dragging: false,
+    lastX: 0,
+    lastY: 0,
+    hiddenMenu: false,
+    tapDownX: 0,
+    tapDownY: 0,
+    tapDownTime: 0,
+    gyroBaseQuat: null,
+    smoothQuat: new THREE.Quaternion(),
+    currentQuat: new THREE.Quaternion(),
+    orientationReceived: false,
+    presetIndex: 0,
+    activeLoadToken: 0
+  };
+
+  let scene, camera, renderer, sphere, currentTexture = null;
+  const activePointers = new Map();
+  let pinchStartDistance = 0;
+  let pinchStartFov = state.fov;
+
+  function clamp(v, min, max){
+    return Math.min(max, Math.max(min, v));
+  }
+
+  function wrap180(v){
+    return ((v + 180) % 360 + 360) % 360 - 180;
+  }
+
+  function canFullscreen(){
+    return !!(document.fullscreenEnabled && document.documentElement.requestFullscreen);
+  }
+
+  function showHint(){
+    revealHint.classList.add('show');
+    clearTimeout(showHint._timer);
+    showHint._timer = setTimeout(() => revealHint.classList.remove('show'), 1400);
+  }
+
+  function setMenuHidden(hidden){
+    state.hiddenMenu = hidden;
+    menu.classList.toggle('hidden', hidden);
+    if(hidden) showHint();
+  }
+
+  function setLoading(show, text){
+    loadingText.textContent = text || '画像を読み込み中...';
+    loadingOverlay.classList.toggle('show', show);
+  }
+
+  function updateModeButtons(){
+    const dragActive = state.mode === 'drag';
+    dragModeBtn.classList.toggle('active', dragActive);
+    gyroModeBtn.classList.toggle('active', !dragActive);
+    dragModeBtn.setAttribute('aria-pressed', dragActive ? 'true' : 'false');
+    gyroModeBtn.setAttribute('aria-pressed', !dragActive ? 'true' : 'false');
+  }
+
+  function renderImagePresetButtons(){
+    const presets = Array.isArray(IMAGE_PRESETS) ? IMAGE_PRESETS : [];
+    imageSwitchGroup.innerHTML = '';
+
+    if(presets.length <= 1){
+      imagePresetRow.style.display = 'none';
+      return;
+    }
+
+    imagePresetRow.style.display = '';
+    imageSwitchGroup.classList.toggle('multi', presets.length !== 2);
+
+    presets.forEach((item, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'switch-option' + (index === state.presetIndex ? ' active' : '');
+      button.textContent = item.label || String(index + 1);
+      button.setAttribute('aria-pressed', index === state.presetIndex ? 'true' : 'false');
+      button.addEventListener('click', async () => {
+        if(index === state.presetIndex) return;
+        state.presetIndex = index;
+        renderImagePresetButtons();
+        await loadPresetByIndex(index);
+      });
+      imageSwitchGroup.appendChild(button);
+    });
+  }
+
+  function resize(){
+    const w = Math.max(window.innerWidth, 320);
+    const h = Math.max(window.innerHeight, 180);
+    renderer.setSize(w, h, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    render();
+  }
+
+  function applyCamera(){
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = THREE.MathUtils.degToRad(state.yaw);
+    camera.rotation.x = THREE.MathUtils.degToRad(state.pitch);
+    camera.rotation.z = 0;
+    camera.fov = state.fov;
+    camera.updateProjectionMatrix();
+  }
+
+  function render(){
+    applyCamera();
+    renderer.render(scene, camera);
+  }
+
+  function animate(){
+    renderer.setAnimationLoop(render);
+  }
+
+  function initThree(){
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(state.fov, window.innerWidth / window.innerHeight, 0.1, 2000);
+    camera.position.set(0, 0, 0.1);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.xr.enabled = true;
+    viewer.appendChild(renderer.domElement);
+
+    const geometry = new THREE.SphereGeometry(500, 64, 40);
+    geometry.scale(-1, 1, 1);
+    const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    sphere = new THREE.Mesh(geometry, material);
+    sphere.rotation.y = -Math.PI / 2;
+    scene.add(sphere);
+
+    resize();
+    animate();
+  }
+
+  function disposeTexture(){
+    if(currentTexture){
+      currentTexture.dispose();
+      currentTexture = null;
+    }
+  }
+
+  function applyTextureFromImage(img){
+    const texture = new THREE.Texture(img);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+
+    disposeTexture();
+    currentTexture = texture;
+    sphere.material.map = texture;
+    sphere.material.needsUpdate = true;
+    render();
+  }
+
+  function loadImage(src){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('画像を読み込めませんでした'));
+      img.src = src;
+    });
+  }
+
+  async function loadImageSource(src, label){
+    const loadToken = ++state.activeLoadToken;
+    setLoading(true, label ? ('画像を読み込み中... ' + label) : '画像を読み込み中...');
+
+    try{
+      const img = await loadImage(src);
+      if(loadToken !== state.activeLoadToken) return;
+      applyTextureFromImage(img);
+    }catch(err){
+      if(loadToken === state.activeLoadToken){
+        alert('VR画像の読み込みに失敗しました。');
+      }
+    }finally{
+      if(loadToken === state.activeLoadToken){
+        setLoading(false);
+      }
+    }
+  }
+
+  async function loadPresetByIndex(index){
+    const item = Array.isArray(IMAGE_PRESETS) ? IMAGE_PRESETS[index] : null;
+    if(!item || !item.image) return;
+    await loadImageSource(item.image, item.label || String(index + 1));
+  }
+
+  async function loadInitialPreset(){
+    const item = Array.isArray(IMAGE_PRESETS) ? IMAGE_PRESETS[0] : null;
+    if(!item || !item.image){
+      setLoading(false);
+      alert('VR画像が設定されていません。');
+      return;
+    }
+    state.presetIndex = 0;
+    renderImagePresetButtons();
+    await loadPresetByIndex(0);
+  }
+
+  function getScreenOrientRad(){
+    const angle = (screen.orientation && typeof screen.orientation.angle === 'number')
+      ? screen.orientation.angle
+      : (typeof window.orientation === 'number' ? window.orientation : 0);
+    return THREE.MathUtils.degToRad(angle || 0);
+  }
+
+  function getDeviceQuaternion(alpha, beta, gamma){
+    const alphaRad = THREE.MathUtils.degToRad(alpha || 0);
+    const betaRad = THREE.MathUtils.degToRad(beta || 0);
+    const gammaRad = THREE.MathUtils.degToRad(gamma || 0);
+    const orient = getScreenOrientRad();
+
+    euler.set(betaRad, alphaRad, -gammaRad, 'YXZ');
+    const quaternion = new THREE.Quaternion();
+    quaternion.setFromEuler(euler);
+    quaternion.multiply(q1);
+    quaternion.multiply(q0.setFromAxisAngle(zee, -orient));
+    return quaternion;
+  }
+
+  function updateViewFromQuaternion(relativeQuat){
+    const rot = new THREE.Euler().setFromQuaternion(relativeQuat, 'YXZ');
+    state.yaw = wrap180(THREE.MathUtils.radToDeg(rot.y));
+    state.pitch = clamp(THREE.MathUtils.radToDeg(rot.x), -85, 85);
+  }
+
+  function resetGyroOrigin(){
+    state.gyroBaseQuat = null;
+    state.yaw = 0;
+    state.pitch = 0;
+    render();
+  }
+
+  function resetZoom(){
+    state.fov = state.initialFov;
+    render();
+  }
+
+  async function requestGyroPermission(){
+    try{
+      const isSecure = window.isSecureContext || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if(!isSecure){
+        alert('ジャイロは HTTPS または localhost で利用してください。');
+        return false;
+      }
+
+      const requests = [];
+
+      if(typeof DeviceOrientationEvent !== 'undefined' &&
+         typeof DeviceOrientationEvent.requestPermission === 'function'){
+        requests.push(DeviceOrientationEvent.requestPermission());
+      }
+
+      if(typeof DeviceMotionEvent !== 'undefined' &&
+         typeof DeviceMotionEvent.requestPermission === 'function'){
+        requests.push(DeviceMotionEvent.requestPermission());
+      }
+
+      if(requests.length === 0){
+        return true;
+      }
+
+      const results = await Promise.all(requests);
+      return results.every(result => result === 'granted');
+    }catch(err){
+      return false;
+    }
+  }
+
+  function onOrientation(e){
+    if(state.mode !== 'gyro') return;
+    if(e.alpha == null || e.beta == null || e.gamma == null) return;
+
+    state.orientationReceived = true;
+    const deviceQuat = getDeviceQuaternion(e.alpha, e.beta, e.gamma);
+
+    if(!state.gyroBaseQuat){
+      state.gyroBaseQuat = deviceQuat.clone().invert();
+      state.smoothQuat.identity();
+      state.currentQuat.identity();
+    }
+
+    state.currentQuat.copy(state.gyroBaseQuat).multiply(deviceQuat);
+
+    if(state.smoothQuat.dot(state.currentQuat) < 0){
+      state.currentQuat.x *= -1;
+      state.currentQuat.y *= -1;
+      state.currentQuat.z *= -1;
+      state.currentQuat.w *= -1;
+    }
+
+    state.smoothQuat.slerp(state.currentQuat, 0.12);
+    updateViewFromQuaternion(state.smoothQuat);
+  }
+
+  function activateGyroMode(){
+    state.orientationReceived = false;
+    state.mode = 'gyro';
+    updateModeButtons();
+    resetGyroOrigin();
+
+    setTimeout(() => {
+      if(state.mode === 'gyro' && !state.orientationReceived){
+        state.mode = 'drag';
+        updateModeButtons();
+      }
+    }, 1200);
+  }
+
+  async function switchToGyroMode(){
+    const ok = await requestGyroPermission();
+    if(ok){
+      activateGyroMode();
+    }else{
+      state.mode = 'drag';
+      updateModeButtons();
+      alert('ジャイロを有効化できませんでした。');
+    }
+  }
+
+  function switchToDragMode(){
+    state.mode = 'drag';
+    updateModeButtons();
+  }
+
+  async function toggleFullscreen(){
+    if(!canFullscreen()) return;
+    try{
+      if(!document.fullscreenElement){
+        await document.documentElement.requestFullscreen();
+      }else{
+        await document.exitFullscreen();
+      }
+    }catch(err){
+    }
+  }
+
+  async function startVR(){
+    if(!navigator.xr || !navigator.xr.isSessionSupported) return;
+    try{
+      const supported = await navigator.xr.isSessionSupported('immersive-vr');
+      if(!supported) return;
+      const session = await navigator.xr.requestSession('immersive-vr', {
+        optionalFeatures: ['local-floor', 'bounded-floor']
+      });
+      renderer.xr.setSession(session);
+    }catch(err){
+    }
+  }
+
+  function getPointerDistance(){
+    const points = Array.from(activePointers.values());
+    if(points.length < 2) return 0;
+    const dx = points[0].x - points[1].x;
+    const dy = points[0].y - points[1].y;
+    return Math.hypot(dx, dy);
+  }
+
+  viewer.addEventListener('pointerdown', (e) => {
+    state.dragging = true;
+    state.lastX = e.clientX;
+    state.lastY = e.clientY;
+    state.tapDownX = e.clientX;
+    state.tapDownY = e.clientY;
+    state.tapDownTime = performance.now();
+
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if(activePointers.size === 2){
+      pinchStartDistance = getPointerDistance();
+      pinchStartFov = state.fov;
+    }
+  });
+
+  viewer.addEventListener('pointermove', (e) => {
+    if(activePointers.has(e.pointerId)){
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if(activePointers.size >= 2){
+      const currentDistance = getPointerDistance();
+      if(pinchStartDistance > 0 && currentDistance > 0){
+        const scale = currentDistance / pinchStartDistance;
+        const nextFov = pinchStartFov / scale;
+        state.fov = clamp(nextFov, state.minFov, state.maxFov);
+      }
+      return;
+    }
+
+    if(!state.dragging) return;
+    if(state.mode !== 'drag') return;
+
+    const dx = e.clientX - state.lastX;
+    const dy = e.clientY - state.lastY;
+    state.lastX = e.clientX;
+    state.lastY = e.clientY;
+
+    state.yaw = wrap180(state.yaw - dx * 0.18);
+    state.pitch = clamp(state.pitch - dy * 0.16, -85, 85);
+  });
+
+  function endPointer(e){
+    if(activePointers.has(e.pointerId)){
+      activePointers.delete(e.pointerId);
+    }
+
+    if(activePointers.size < 2){
+      pinchStartDistance = 0;
+      pinchStartFov = state.fov;
+    }
+
+    if(!state.dragging) return;
+    state.dragging = false;
+
+    const dt = performance.now() - state.tapDownTime;
+    const move = Math.hypot(e.clientX - state.tapDownX, e.clientY - state.tapDownY);
+
+    if(dt < 250 && move < 10 && activePointers.size === 0){
+      if(state.hiddenMenu){
+        setMenuHidden(false);
+      }else if(!menu.contains(e.target)){
+        setMenuHidden(true);
+      }
+    }
+  }
+
+  viewer.addEventListener('pointerup', endPointer);
+  viewer.addEventListener('pointercancel', endPointer);
+  viewer.addEventListener('pointerleave', endPointer);
+  viewer.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    state.fov = clamp(state.fov + (e.deltaY > 0 ? 3 : -3), state.minFov, state.maxFov);
+  }, { passive: false });
+
+  dragModeBtn.addEventListener('click', () => {
+    switchToDragMode();
+  });
+
+  gyroModeBtn.addEventListener('click', async () => {
+    await switchToGyroMode();
+  });
+
+  recenterBtn.addEventListener('click', resetGyroOrigin);
+  resetZoomBtn.addEventListener('click', resetZoom);
+  fullscreenBtn.addEventListener('click', toggleFullscreen);
+  vrBtn.addEventListener('click', startVR);
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', resetGyroOrigin);
+  window.addEventListener('deviceorientation', onOrientation, true);
+
+  if(!canFullscreen()){
+    fullscreenBtn.style.display = 'none';
+  }
+
+  if(!navigator.xr || !navigator.xr.isSessionSupported){
+    vrBtn.style.display = 'none';
+  }else{
+    navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+      if(!supported){
+        vrBtn.style.display = 'none';
+      }
+    }).catch(() => {
+      vrBtn.style.display = 'none';
+    });
+  }
+
+  updateModeButtons();
+  renderImagePresetButtons();
+  initThree();
+  setLoading(true, '画像を読み込み中...');
+  loadInitialPreset();
+})();
+</script>
+</body>
+</html>

@@ -20,6 +20,10 @@ class AccountPage extends PTUserPage
 		
 		if( $this->util->isAdmin($this->member) ){
 			$config = $this->loadFileConfig();
+			if ($config === false) {
+				$this->configLoadErrorAction();
+				return;
+			}
 			$fileList = $this->listFilesRecursive($config);
 			
 			$host = "file.nilwork.net";
@@ -38,18 +42,25 @@ class AccountPage extends PTUserPage
 				
 				$filePath = $file['path'];
 				$key = $file['config']['key'];
+				$fileType = strtok($filePath, ':');
 				
 				$videoUrl = "https://".$host."/data/player?f=".$filePath."&k=".$key;
 				$file["video"] = $videoUrl;
 				
-				$downloadUrl = "https://".$host."/data/file?f=".$filePath."&k=".$key."&m=download";
-				$file["download"] = $downloadUrl;
-				
-				$smUrl = "https://".$host."/data/sm?f=".$filePath."&k=".$key;
-				$file["sm"] = $smUrl;
-				
-				$gifUrl = "https://".$host."/data/gif?f=".$filePath."&k=".$key."&m=download";
-				$file["gif"] = $gifUrl;
+				if ($fileType !== 'vr') {
+					$downloadUrl = "https://".$host."/data/file?f=".$filePath."&k=".$key."&m=download";
+					$file["download"] = $downloadUrl;
+					
+					$smUrl = "https://".$host."/data/sm?f=".$filePath."&k=".$key;
+					$file["sm"] = $smUrl;
+					
+					$gifUrl = "https://".$host."/data/gif?f=".$filePath."&k=".$key."&m=download";
+					$file["gif"] = $gifUrl;
+				} else {
+					$file["download"] = "";
+					$file["sm"] = "";
+					$file["gif"] = "";
+				}
 				
 				
 				$playlogUrl = "https://".$host."/account/useuser?a=play&c=".$filePath;
@@ -121,6 +132,12 @@ class AccountPage extends PTUserPage
 	public function notfoundAction()
 	{ 
 		$this->displayNotFound();
+	}
+
+	protected function configLoadErrorAction()
+	{
+		header('Content-Type: text/plain; charset=UTF-8');
+		echo "file.json の読み込みに失敗しました。JSON構文を確認してください。";
 	}
 
 	public function loadFileConfig(){

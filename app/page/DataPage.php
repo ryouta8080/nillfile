@@ -128,6 +128,49 @@ class DataPage extends PTUserPage
 				$this->view->scriptTitle = $fileConfig["title"];
 				$this->view->scriptDesc = $fileConfig["desc"];
 				break;
+			case 'vr':
+				$vrImageItems = isset($fileConfig['image']) ? $fileConfig['image'] : [];
+				if (!is_array($vrImageItems)) {
+					$vrImageItems = [$vrImageItems];
+				}
+				if (!$vrImageItems) {
+					$this->configLoadErrorAction();
+					return;
+				}
+				$vrImagePresets = [];
+				foreach ($vrImageItems as $presetLabel => $vrImageCode) {
+					$label = is_string($presetLabel) ? trim($presetLabel) : '';
+					if (!is_string($vrImageCode) || $vrImageCode === '') {
+						$this->configLoadErrorAction();
+						return;
+					}
+					if (strpos($vrImageCode, 'image:') !== 0) {
+						$this->configLoadErrorAction();
+						return;
+					}
+					$vrImageConfig = $this->loadFileConfigByCode($vrImageCode);
+					if ($vrImageConfig === false || !$vrImageConfig) {
+						$this->configLoadErrorAction();
+						return;
+					}
+					if (!$this->checkPermision($vrImageConfig)) {
+						$this->displayNoPermision();
+						return;
+					}
+
+					$vrImagePresets[] = [
+						'label' => $label,
+						'image' => "https://" . $host . "/data/file/?f=" . rawurlencode($vrImageCode) . "&k=" . rawurlencode($vrImageConfig['key']) . "&m=play",
+					];
+				}
+
+				$this->view->vrImagePresets = $vrImagePresets;
+				$this->view->vrTitle = isset($fileConfig['title']) ? (string)$fileConfig['title'] : '';
+				$this->view->fileName = $this->buildTrackedFileName($fileConfig);
+				$this->setTemplatePath("data/player_vr.phtml");
+
+				$this->util->addPlayHistory($this->buildTrackedFileName($fileConfig), $file, $this->member);
+				break;
 		}
 		
 		$this->view->title = "";
@@ -359,6 +402,14 @@ class DataPage extends PTUserPage
 			$this->util->addDownloadHistory($fileName, $file, $this->member);
 		}
 
+		if($mode == "play"){
+			$this->applyBrowserCacheHeaders($fileConfig, $filePath);
+		}else{
+			header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+			header("Pragma: no-cache");
+			header("Expires: 0");
+		}
+
 		// MIMEタイプを自動判別（動画や画像など再生可能なものはブラウザで再生される）
 		$mimeType = mime_content_type($filePath);
 
@@ -381,6 +432,39 @@ class DataPage extends PTUserPage
 		
 		return;
 	}
+
+	protected function applyBrowserCacheHeaders(array $fileConfig, string $filePath)
+	{
+		$cacheValue = isset($fileConfig["cache"]) ? $fileConfig["cache"] : false;
+		$cacheSeconds = 0;
+		if($cacheValue === true){
+			$cacheSeconds = 60 * 60 * 24 * 30;
+		}else if(is_numeric($cacheValue)){
+			$cacheSeconds = (int)$cacheValue;
+		}
+		if($cacheSeconds <= 0){
+			header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+			header("Pragma: no-cache");
+			header("Expires: 0");
+			return;
+		}
+
+		$mtime = @filemtime($filePath);
+		if(!$mtime){
+			$mtime = time();
+		}
+
+		$lastModified = gmdate('D, d M Y H:i:s', $mtime) . ' GMT';
+		header("Cache-Control: private, max-age=".$cacheSeconds);
+		header("Expires: " . gmdate('D, d M Y H:i:s', time() + $cacheSeconds) . ' GMT');
+		header("Last-Modified: " . $lastModified);
+
+		$ifModifiedSince = isset($_SERVER['HTTP_IF_MODIFIED_SINCE']) ? trim((string)$_SERVER['HTTP_IF_MODIFIED_SINCE']) : '';
+		if($ifModifiedSince !== '' && strtotime($ifModifiedSince) >= $mtime){
+			header($_SERVER['SERVER_PROTOCOL'] . ' 304 Not Modified');
+			exit;
+		}
+	}
 	
 	public function loadFileConfig($file,$key,$mode){
 		
@@ -395,7 +479,7 @@ class DataPage extends PTUserPage
 		
 		$type = $d[0];
 		$path = $d[1];
-		if($type != "movie" && $type != "image" && $type != "zip" && $type != "file" && $type != "bookmarklet" ){
+		if($type != "movie" && $type != "image" && $type != "zip" && $type != "file" && $type != "bookmarklet" && $type != "vr" ){
 			return null;
 		}
 		
@@ -450,6 +534,10 @@ class DataPage extends PTUserPage
 		}
 		
 		$path = implode("/",$pathList);
+		$node['path'] = $path;
+		if ($type === 'vr') {
+			return $node;
+		}
 		$realPath = $realPathBase . $path;
 		
 		if ($type === 'zip' && (!file_exists($realPath) || !is_file($realPath))) {
@@ -467,8 +555,76 @@ class DataPage extends PTUserPage
 		}
 		$filePath = $realPath;
 		$node['file_path'] = $filePath;
-		$node['path'] = $path;
 		return $node;
+	}
+
+	protected function loadFileConfigByCode($file)
+	{
+		return $this->loadFileConfig($file, $this->extractFileKeyFromConfig($file), 'play');
+	}
+
+	protected function extractFileKeyFromConfig($file)
+	{
+		if (!$file) {
+			return null;
+		}
+
+		$d = explode(":", $file, 2);
+		if (count($d) != 2) {
+			return null;
+		}
+
+		$type = $d[0];
+		$path = trim(trim(trim($d[1]), "./"));
+		$path = str_replace('../', '', $path);
+		$path = str_replace('//', '/', $path);
+		$path = preg_replace('/\/\/+/', '/', $path);
+		$path = $type . "/" . $path;
+
+		$configPath = PCPath::systemRoot() . "app/res/content/file.json";
+		if (!file_exists($configPath) || !is_file($configPath)) {
+			return null;
+		}
+
+		$config = json_decode(file_get_contents($configPath), true);
+		if (!is_array($config)) {
+			return null;
+		}
+
+		$node = $config;
+		foreach (explode("/", $path) as $part) {
+			if (!isset($node[$part])) {
+				return null;
+			}
+			$node = $node[$part];
+		}
+
+		return isset($node['key']) ? $node['key'] : null;
+	}
+
+	protected function extractDisplayNameFromCode($fileCode)
+	{
+		$parts = explode(':', (string)$fileCode, 2);
+		$path = count($parts) === 2 ? $parts[1] : $parts[0];
+		return basename($path);
+	}
+
+	protected function buildTrackedFileName(array $fileConfig)
+	{
+		$fileNameSource = isset($fileConfig['file_path']) ? basename($fileConfig['file_path']) : basename((string)($fileConfig['path'] ?? ''));
+		if ($fileNameSource === '') {
+			$fileNameSource = 'content';
+		}
+
+		if (isset($fileConfig['suffix']) && $fileConfig['suffix'] !== '') {
+			$dotPos = strrpos($fileNameSource, '.');
+			if ($dotPos !== false) {
+				return substr($fileNameSource, 0, $dotPos) . "_" . $fileConfig['suffix'] . substr($fileNameSource, $dotPos);
+			}
+			return $fileNameSource . "_" . $fileConfig['suffix'];
+		}
+
+		return $fileNameSource;
 	}
 	
 	/**

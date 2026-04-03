@@ -12,8 +12,11 @@ class PTUtil{
 			//batch
 			return true;
 		}
-		if( $_SERVER["HTTP_HOST"] == "dev-file.nilwork.net"){
-			return true;
+		$host = $_SERVER['HTTP_HOST'] ?? '';
+
+		// dev- で始まるホストを許可
+		if (strpos($host, 'dev-') === 0) {
+		    return true;
 		}
 		return false;
 	}
