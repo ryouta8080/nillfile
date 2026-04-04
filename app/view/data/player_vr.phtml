@@ -62,6 +62,12 @@ $presetCount = count($imagePresets);
       background:rgba(255,255,255,.06); color:#fff; padding:10px 12px; font-size:14px;
     }
 
+    .hint{
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.45;
+    }
+
     .switch-group{
       display:grid;
       grid-template-columns:1fr 1fr;
@@ -200,6 +206,8 @@ $presetCount = count($imagePresets);
       <button id="fullscreenBtn" type="button">全画面</button>
       <button id="vrBtn" type="button">VR</button>
     </div>
+
+    <div class="hint">メニューの外をタップするとメニューを閉じます。メニュー非表示中は、好きな場所のタップで再表示します。</div>
   </div>
 
   <div id="loadingOverlay">
