@@ -247,6 +247,7 @@ $presetCount = count($imagePresets);
   const state = {
     yaw: 0,
     pitch: 0,
+    roll: 0,
     fov: 60,
     initialFov: 60,
     minFov: 18,
@@ -351,7 +352,7 @@ $presetCount = count($imagePresets);
     camera.rotation.order = 'YXZ';
     camera.rotation.y = THREE.MathUtils.degToRad(state.yaw);
     camera.rotation.x = THREE.MathUtils.degToRad(state.pitch);
-    camera.rotation.z = 0;
+    camera.rotation.z = THREE.MathUtils.degToRad(state.roll);
     camera.fov = state.fov;
     camera.updateProjectionMatrix();
   }
@@ -480,12 +481,14 @@ $presetCount = count($imagePresets);
     const rot = new THREE.Euler().setFromQuaternion(relativeQuat, 'YXZ');
     state.yaw = wrap180(THREE.MathUtils.radToDeg(rot.y));
     state.pitch = clamp(THREE.MathUtils.radToDeg(rot.x), -85, 85);
+    state.roll = wrap180(THREE.MathUtils.radToDeg(rot.z));
   }
 
   function resetGyroOrigin(){
     state.gyroBaseQuat = null;
     state.yaw = 0;
     state.pitch = 0;
+    state.roll = 0;
     render();
   }
 
