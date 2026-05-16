@@ -138,13 +138,40 @@ class DataPage extends PTUserPage
 					return;
 				}
 				$vrImagePresets = [];
-				foreach ($vrImageItems as $presetLabel => $vrImageCode) {
+				foreach ($vrImageItems as $presetLabel => $vrImageItem) {
 					$label = is_string($presetLabel) ? trim($presetLabel) : '';
+					$yawOffset = 0.0;
+					$preload = null;
+					$audioItems = [];
+					$vrImageCode = $vrImageItem;
+
+					if (is_array($vrImageItem)) {
+						if (isset($vrImageItem['label']) && is_string($vrImageItem['label'])) {
+							$label = trim($vrImageItem['label']);
+						}
+						if (isset($vrImageItem['yaw']) && is_numeric($vrImageItem['yaw'])) {
+							$yawOffset = (float)$vrImageItem['yaw'];
+						} else if (isset($vrImageItem['yawOffset']) && is_numeric($vrImageItem['yawOffset'])) {
+							$yawOffset = (float)$vrImageItem['yawOffset'];
+						} else if (isset($vrImageItem['yOffset']) && is_numeric($vrImageItem['yOffset'])) {
+							$yawOffset = (float)$vrImageItem['yOffset'];
+						}
+						if (array_key_exists('preload', $vrImageItem)) {
+							$preload = (bool)$vrImageItem['preload'];
+						}
+						if (isset($vrImageItem['audio']) && is_array($vrImageItem['audio'])) {
+							$audioItems = $this->buildVrAudioPresets($vrImageItem['audio'], $host);
+						}
+
+						$vrImageCode = $vrImageItem['file'] ?? ($vrImageItem['image'] ?? ($vrImageItem['src'] ?? null));
+					}
+
 					if (!is_string($vrImageCode) || $vrImageCode === '') {
 						$this->configLoadErrorAction();
 						return;
 					}
-					if (strpos($vrImageCode, 'image:') !== 0) {
+					list($vrMediaType) = $this->parseFileType($vrImageCode);
+					if ($vrMediaType !== 'image' && $vrMediaType !== 'movie') {
 						$this->configLoadErrorAction();
 						return;
 					}
@@ -158,10 +185,20 @@ class DataPage extends PTUserPage
 						return;
 					}
 
-					$vrImagePresets[] = [
+					$preset = [
 						'label' => $label,
 						'image' => "https://" . $host . "/data/file/?f=" . rawurlencode($vrImageCode) . "&k=" . rawurlencode($vrImageConfig['key']) . "&m=play",
+						'type' => $vrMediaType === 'movie' ? 'video' : 'image',
+						'yaw' => $yawOffset,
 					];
+					if ($preload !== null) {
+						$preset['preload'] = $preload;
+					}
+					if ($audioItems) {
+						$preset['audio'] = $audioItems;
+					}
+
+					$vrImagePresets[] = $preset;
 				}
 
 				$this->view->vrImagePresets = $vrImagePresets;
@@ -195,6 +232,50 @@ class DataPage extends PTUserPage
 		return [$type, $path];
 	}
 	
+	protected function buildVrAudioPresets(array $audioMap, string $host): array
+	{
+		$items = [];
+		foreach ($audioMap as $audioItem) {
+			if (is_string($audioItem)) {
+				$audioItem = ['file' => $audioItem];
+			}
+			if (!is_array($audioItem)) {
+				continue;
+			}
+
+			$audioCode = $audioItem['file'] ?? ($audioItem['audio'] ?? ($audioItem['src'] ?? null));
+			if (!is_string($audioCode) || trim($audioCode) === '') {
+				continue;
+			}
+
+			$audioCode = trim($audioCode);
+			list($audioType) = $this->parseFileType($audioCode);
+			if ($audioType !== 'audio' && $audioType !== 'file' && $audioType !== 'movie') {
+				continue;
+			}
+
+			$audioConfig = $this->loadFileConfigByCode($audioCode);
+			if ($audioConfig === false || !$audioConfig || !$this->checkPermision($audioConfig)) {
+				continue;
+			}
+
+			$item = [
+				'src' => "https://" . $host . "/data/file/?f=" . rawurlencode($audioCode) . "&k=" . rawurlencode($audioConfig['key']) . "&m=play",
+				'loop' => isset($audioItem['loop']) ? (bool)$audioItem['loop'] : true,
+			];
+			if (isset($audioItem['volume']) && is_numeric($audioItem['volume'])) {
+				$item['volume'] = (float)$audioItem['volume'];
+			}
+			if (isset($audioItem['position']) && is_array($audioItem['position'])) {
+				$item['position'] = array_values($audioItem['position']);
+			}
+
+			$items[] = $item;
+		}
+
+		return $items;
+	}
+
 	public function smAction()
 	{
 		if(!$this->member){
@@ -412,6 +493,10 @@ class DataPage extends PTUserPage
 
 		// MIMEタイプを自動判別（動画や画像など再生可能なものはブラウザで再生される）
 		$mimeType = mime_content_type($filePath);
+		$ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+		if ($ext === 'mp4') $mimeType = 'video/mp4';
+		else if ($ext === 'mp3') $mimeType = 'audio/mpeg';
+		else if (!is_string($mimeType) || $mimeType === '') $mimeType = 'application/octet-stream';
 
 		// ヘッダを出力
 		header('Content-Description: File Transfer');
@@ -419,18 +504,73 @@ class DataPage extends PTUserPage
 		if($mode == "download"){
 			header('Content-Disposition: attachment; filename="' . $fileName . '"');
 		}else{
-			header('Content-Disposition: inline; filename="' . $fileName . '"'); 
+			header('Content-Disposition: inline; filename="' . $fileName . '"');
 		}
 
 		header('Content-Transfer-Encoding: binary');
-		header('Content-Length: ' . filesize($filePath));
+		if($mode == "download"){
+			header('Content-Length: ' . filesize($filePath));
+			ob_clean();
+			flush();
+			readfile($filePath);
+		}else{
+			$this->sendInlineFile($filePath);
+		}
 
-		// バッファを消してから出力
+		return;
+	}
+
+	protected function sendInlineFile(string $filePath): void
+	{
+		$fileSize = filesize($filePath);
+		$start = 0;
+		$end = $fileSize - 1;
+
+		header('Accept-Ranges: bytes');
+
+		$range = isset($_SERVER['HTTP_RANGE']) ? trim((string)$_SERVER['HTTP_RANGE']) : '';
+		if ($range !== '' && preg_match('/^bytes=(\d*)-(\d*)$/', $range, $matches)) {
+			if ($matches[1] === '' && $matches[2] !== '') {
+				$suffixLength = min((int)$matches[2], $fileSize);
+				$start = $fileSize - $suffixLength;
+			} else {
+				$start = (int)$matches[1];
+				if ($matches[2] !== '') {
+					$end = min((int)$matches[2], $end);
+				}
+			}
+
+			if ($start > $end || $start < 0 || $end >= $fileSize) {
+				header($_SERVER['SERVER_PROTOCOL'] . ' 416 Range Not Satisfiable');
+				header('Content-Range: bytes */' . $fileSize);
+				return;
+			}
+
+			header($_SERVER['SERVER_PROTOCOL'] . ' 206 Partial Content');
+			header('Content-Range: bytes ' . $start . '-' . $end . '/' . $fileSize);
+		}
+
+		$length = $end - $start + 1;
+		header('Content-Length: ' . $length);
+
+		$handle = fopen($filePath, 'rb');
+		if ($handle === false) {
+			return;
+		}
+
 		ob_clean();
 		flush();
-		readfile($filePath);
-		
-		return;
+		fseek($handle, $start);
+		$remaining = $length;
+		while ($remaining > 0 && !feof($handle)) {
+			$chunk = fread($handle, min(8192, $remaining));
+			if ($chunk === false || $chunk === '') {
+				break;
+			}
+			echo $chunk;
+			$remaining -= strlen($chunk);
+		}
+		fclose($handle);
 	}
 
 	protected function applyBrowserCacheHeaders(array $fileConfig, string $filePath)
@@ -479,7 +619,7 @@ class DataPage extends PTUserPage
 		
 		$type = $d[0];
 		$path = $d[1];
-		if($type != "movie" && $type != "image" && $type != "zip" && $type != "file" && $type != "bookmarklet" && $type != "vr" ){
+		if($type != "movie" && $type != "image" && $type != "audio" && $type != "zip" && $type != "file" && $type != "bookmarklet" && $type != "vr" ){
 			return null;
 		}
 		

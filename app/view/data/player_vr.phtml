@@ -265,10 +265,11 @@ $presetCount = count($imagePresets);
     currentQuat: new THREE.Quaternion(),
     orientationReceived: false,
     presetIndex: 0,
-    activeLoadToken: 0
+    activeLoadToken: 0,
+    mediaYawOffset: 0
   };
 
-  let scene, camera, renderer, sphere, currentTexture = null;
+  let scene, camera, renderer, sphere, currentTexture = null, currentVideo = null;
   const activePointers = new Map();
   let pinchStartDistance = 0;
   let pinchStartFov = state.fov;
@@ -279,6 +280,20 @@ $presetCount = count($imagePresets);
 
   function wrap180(v){
     return ((v + 180) % 360 + 360) % 360 - 180;
+  }
+
+  function getPresetYawOffset(item){
+    if(!item) return 0;
+    const value = item.yaw ?? item.yawOffset ?? item.yOffset ?? 0;
+    const offset = Number(value);
+    return Number.isFinite(offset) ? offset : 0;
+  }
+
+  function applyMediaYawOffset(item){
+    state.mediaYawOffset = getPresetYawOffset(item);
+    if(sphere){
+      sphere.rotation.y = -Math.PI / 2 + THREE.MathUtils.degToRad(state.mediaYawOffset);
+    }
   }
 
   function canFullscreen(){
@@ -380,7 +395,7 @@ $presetCount = count($imagePresets);
     geometry.scale(-1, 1, 1);
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
     sphere = new THREE.Mesh(geometry, material);
-    sphere.rotation.y = -Math.PI / 2;
+    applyMediaYawOffset(IMAGE_PRESETS[0]);
     scene.add(sphere);
 
     resize();
@@ -388,25 +403,41 @@ $presetCount = count($imagePresets);
   }
 
   function disposeTexture(){
+    if(currentVideo){
+      currentVideo.pause();
+      currentVideo.removeAttribute('src');
+      currentVideo.load();
+      currentVideo = null;
+    }
     if(currentTexture){
       currentTexture.dispose();
       currentTexture = null;
     }
   }
 
-  function applyTextureFromImage(img){
-    const texture = new THREE.Texture(img);
+  function applyTexture(texture){
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.minFilter = THREE.LinearFilter;
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = false;
-    texture.needsUpdate = true;
 
     disposeTexture();
     currentTexture = texture;
     sphere.material.map = texture;
     sphere.material.needsUpdate = true;
     render();
+  }
+
+  function applyTextureFromImage(img){
+    const texture = new THREE.Texture(img);
+    texture.needsUpdate = true;
+    applyTexture(texture);
+  }
+
+  function applyTextureFromVideo(video){
+    const texture = new THREE.VideoTexture(video);
+    applyTexture(texture);
+    currentVideo = video;
   }
 
   function loadImage(src){
@@ -419,29 +450,403 @@ $presetCount = count($imagePresets);
     });
   }
 
-  async function loadImageSource(src, label){
+  function getVideoBufferedPercent(video){
+    if(!Number.isFinite(video.duration) || video.duration <= 0 || video.buffered.length === 0) return null;
+    let bufferedEnd = 0;
+    for(let i = 0; i < video.buffered.length; i++){
+      bufferedEnd = Math.max(bufferedEnd, video.buffered.end(i));
+    }
+    return clamp(Math.floor((bufferedEnd / video.duration) * 100), 0, 100);
+  }
+
+  function formatVideoLoadText(stage, percent){
+    const base = stage === 'metadata' ? '動画情報を読み込み中...' : '動画を読み込み中...';
+    return percent == null ? base : (base + ' ' + percent + '%');
+  }
+
+  const VIDEO_PRELOAD_MAX_READY = 3;
+  const videoPreloadCache = new Map();
+  let videoPreloadQueue = [];
+  let videoPreloadRunning = false;
+
+  function getMediaSrc(item){
+    return item && item.image ? String(item.image) : '';
+  }
+
+  function shouldPreloadVideo(item){
+    return isVideoPreset(item) && item.preload !== false && !!getMediaSrc(item);
+  }
+
+  function getVideoPreloadEntry(item){
+    const src = getMediaSrc(item);
+    if(!src) return null;
+    let entry = videoPreloadCache.get(src);
+    if(!entry){
+      entry = {
+        src,
+        status: 'idle',
+        percent: null,
+        objectUrl: null,
+        promise: null,
+        listeners: new Set(),
+        lastUsed: 0
+      };
+      videoPreloadCache.set(src, entry);
+    }
+    return entry;
+  }
+
+  function notifyVideoPreload(entry, stage, percent){
+    entry.listeners.forEach((listener) => {
+      try{
+        listener(stage, percent);
+      }catch(err){
+      }
+    });
+  }
+
+  function touchVideoPreload(entry){
+    entry.lastUsed = Date.now();
+  }
+
+  function enforceVideoPreloadLimit(){
+    const readyEntries = Array.from(videoPreloadCache.values())
+      .filter((entry) => entry.status === 'ready' && entry.objectUrl && entry.src !== getMediaSrc(IMAGE_PRESETS[state.presetIndex]))
+      .sort((a, b) => a.lastUsed - b.lastUsed);
+
+    while(readyEntries.length > VIDEO_PRELOAD_MAX_READY){
+      const entry = readyEntries.shift();
+      if(!entry) break;
+      URL.revokeObjectURL(entry.objectUrl);
+      entry.objectUrl = null;
+      entry.status = 'idle';
+      entry.percent = null;
+      entry.promise = null;
+    }
+  }
+
+  async function readResponseBlobWithProgress(response, entry){
+    const total = Number(response.headers.get('Content-Length') || 0);
+    const contentType = response.headers.get('Content-Type') || 'video/mp4';
+
+    if(!response.body || !response.body.getReader){
+      const blob = await response.blob();
+      entry.percent = 100;
+      notifyVideoPreload(entry, 'download', 100);
+      return blob;
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+
+    while(true){
+      const result = await reader.read();
+      if(result.done) break;
+      if(result.value){
+        chunks.push(result.value);
+        loaded += result.value.length;
+        if(total > 0){
+          entry.percent = clamp(Math.floor((loaded / total) * 100), 0, 99);
+          notifyVideoPreload(entry, 'download', entry.percent);
+        }else{
+          notifyVideoPreload(entry, 'download', null);
+        }
+      }
+    }
+
+    entry.percent = 100;
+    notifyVideoPreload(entry, 'download', 100);
+    return new Blob(chunks, { type: contentType });
+  }
+
+  function startVideoPreload(item){
+    const entry = getVideoPreloadEntry(item);
+    if(!entry) return Promise.reject(new Error('Video source is empty'));
+    if(entry.status === 'ready' && entry.objectUrl){
+      touchVideoPreload(entry);
+      return Promise.resolve(entry.objectUrl);
+    }
+    if(entry.promise){
+      return entry.promise;
+    }
+
+    entry.status = 'loading';
+    entry.percent = null;
+    notifyVideoPreload(entry, 'download', null);
+    entry.promise = (async () => {
+      const response = await fetch(entry.src, { cache: 'force-cache' });
+      if(!response.ok){
+        throw new Error('Video preload failed');
+      }
+
+      const blob = await readResponseBlobWithProgress(response, entry);
+      if(entry.objectUrl){
+        URL.revokeObjectURL(entry.objectUrl);
+      }
+      entry.objectUrl = URL.createObjectURL(blob);
+      entry.status = 'ready';
+      entry.percent = 100;
+      touchVideoPreload(entry);
+      enforceVideoPreloadLimit();
+      return entry.objectUrl;
+    })().catch((err) => {
+      entry.status = 'error';
+      entry.percent = null;
+      entry.promise = null;
+      notifyVideoPreload(entry, 'download', null);
+      throw err;
+    });
+
+    return entry.promise;
+  }
+
+  function preloadVideoForUse(item, onProgress){
+    const entry = getVideoPreloadEntry(item);
+    if(!entry) return Promise.reject(new Error('Video source is empty'));
+
+    if(typeof onProgress === 'function'){
+      entry.listeners.add(onProgress);
+      onProgress('download', entry.percent);
+    }
+
+    return startVideoPreload(item).finally(() => {
+      if(typeof onProgress === 'function'){
+        entry.listeners.delete(onProgress);
+      }
+    });
+  }
+
+  async function loadVideoForPreset(item, onProgress){
+    if(!shouldPreloadVideo(item)){
+      return loadVideo(item.image, onProgress);
+    }
+
+    const objectUrl = await preloadVideoForUse(item, (stage, percent) => {
+      if(typeof onProgress === 'function'){
+        onProgress(stage, percent);
+      }
+    });
+
+    return loadVideo(objectUrl, (stage, percent) => {
+      if(typeof onProgress === 'function'){
+        onProgress(stage, percent == null ? 100 : percent);
+      }
+    });
+  }
+
+  function scheduleVideoPreloads(exceptIndex){
+    const presets = Array.isArray(IMAGE_PRESETS) ? IMAGE_PRESETS : [];
+    videoPreloadQueue = presets
+      .map((item, index) => ({ item, index }))
+      .filter(({ item, index }) => index !== exceptIndex && shouldPreloadVideo(item))
+      .filter(({ item }) => {
+        const entry = getVideoPreloadEntry(item);
+        return entry && entry.status !== 'ready' && entry.status !== 'loading';
+      });
+
+    runVideoPreloadQueue();
+  }
+
+  function runVideoPreloadQueue(){
+    if(videoPreloadRunning) return;
+    videoPreloadRunning = true;
+
+    const next = () => {
+      const queued = videoPreloadQueue.shift();
+      if(!queued){
+        videoPreloadRunning = false;
+        return;
+      }
+
+      startVideoPreload(queued.item).catch(() => {}).finally(() => {
+        const runNext = () => next();
+        if('requestIdleCallback' in window){
+          window.requestIdleCallback(runNext, { timeout: 1500 });
+        }else{
+          setTimeout(runNext, 300);
+        }
+      });
+    };
+
+    if('requestIdleCallback' in window){
+      window.requestIdleCallback(next, { timeout: 1500 });
+    }else{
+      setTimeout(next, 300);
+    }
+  }
+
+  window.addEventListener('beforeunload', () => {
+    videoPreloadCache.forEach((entry) => {
+      if(entry.objectUrl){
+        URL.revokeObjectURL(entry.objectUrl);
+      }
+    });
+  });
+
+  function loadVideo(src, onProgress){
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.preload = 'auto';
+      video.loop = true;
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+
+      let resolved = false;
+      const report = (stage) => {
+        if(typeof onProgress === 'function'){
+          onProgress(stage, getVideoBufferedPercent(video));
+        }
+      };
+      const cleanup = () => {
+        video.removeEventListener('loadstart', onLoadStart);
+        video.removeEventListener('loadedmetadata', onLoadedMetadata);
+        video.removeEventListener('loadeddata', onProgressEvent);
+        video.removeEventListener('progress', onProgressEvent);
+        video.removeEventListener('stalled', onProgressEvent);
+        video.removeEventListener('waiting', onProgressEvent);
+        video.removeEventListener('suspend', onProgressEvent);
+        video.removeEventListener('canplay', onReady);
+        video.removeEventListener('playing', onReady);
+        video.removeEventListener('error', onError);
+      };
+      const onLoadStart = () => report('loadstart');
+      const onLoadedMetadata = () => report('metadata');
+      const onProgressEvent = () => report('buffering');
+      const onReady = async () => {
+        if(resolved) return;
+        report('buffering');
+        try{
+          await video.play();
+        }catch(err){
+          cleanup();
+          reject(err);
+          return;
+        }
+        resolved = true;
+        cleanup();
+        resolve(video);
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error('Video load failed'));
+      };
+
+      video.addEventListener('loadstart', onLoadStart);
+      video.addEventListener('loadedmetadata', onLoadedMetadata);
+      video.addEventListener('loadeddata', onProgressEvent);
+      video.addEventListener('progress', onProgressEvent);
+      video.addEventListener('stalled', onProgressEvent);
+      video.addEventListener('waiting', onProgressEvent);
+      video.addEventListener('suspend', onProgressEvent);
+      video.addEventListener('canplay', onReady);
+      video.addEventListener('playing', onReady);
+      video.addEventListener('error', onError, { once: true });
+      report('loadstart');
+      video.src = src;
+      video.load();
+    });
+  }
+
+  function waitForVideoFrame(video){
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = () => {
+        if(done) return;
+        done = true;
+        cleanup();
+        resolve();
+      };
+      const hasPlaybackFrame = () => video.readyState >= 2 && !video.paused && video.currentTime > 0;
+      const check = () => {
+        if(hasPlaybackFrame()) finish();
+      };
+      const cleanup = () => {
+        video.removeEventListener('playing', check);
+        video.removeEventListener('timeupdate', check);
+        video.removeEventListener('canplay', check);
+        clearInterval(timer);
+        clearTimeout(maxWait);
+      };
+      if(typeof video.requestVideoFrameCallback === 'function') {
+        video.requestVideoFrameCallback(() => finish());
+      }
+      video.addEventListener('playing', check);
+      video.addEventListener('timeupdate', check);
+      video.addEventListener('canplay', check);
+      const timer = setInterval(check, 120);
+      const maxWait = setTimeout(finish, 30000);
+      check();
+    });
+  }
+  function isVideoPreset(item){
+    if(!item) return false;
+    if(item.type === 'video') return true;
+    const src = String(item.image || '');
+    try{
+      const url = new URL(src, window.location.href);
+      const imageName = url.searchParams.get('image') || url.searchParams.get('f') || url.pathname;
+      return imageName.toLowerCase().endsWith('.mp4') || imageName.toLowerCase().startsWith('movie:');
+    }catch(err){
+      return src.split('?')[0].toLowerCase().endsWith('.mp4');
+    }
+  }
+
+  async function loadMediaSource(item, label){
     const loadToken = ++state.activeLoadToken;
-    setLoading(true, label ? ('画像を読み込み中... ' + label) : '画像を読み込み中...');
+    const isVideo = isVideoPreset(item);
+    const loadingLabel = isVideo ? '動画を読み込み中...' : '画像を読み込み中...';
+    setLoading(true, label ? (loadingLabel + ' ' + label) : loadingLabel);
+    let loadingClosed = false;
 
     try{
-      const img = await loadImage(src);
-      if(loadToken !== state.activeLoadToken) return;
-      applyTextureFromImage(img);
+      if(!isVideo){
+        const img = await loadImage(item.image);
+        if(loadToken !== state.activeLoadToken) return;
+        applyMediaYawOffset(item);
+        applyTextureFromImage(img);
+        setLoading(false);
+        loadingClosed = true;
+        scheduleVideoPreloads(state.presetIndex);
+        return;
+      }
+
+      const video = await loadVideoForPreset(item, (stage, percent) => {
+        if(loadToken !== state.activeLoadToken) return;
+        const text = formatVideoLoadText(stage, percent);
+        setLoading(true, label ? (text + ' ' + label) : text);
+      });
+      if(loadToken !== state.activeLoadToken){
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        return;
+      }
+      applyMediaYawOffset(item);
+      applyTextureFromVideo(video);
+      setLoading(true, label ? ('再生準備中... ' + label) : '再生準備中...');
+      await waitForVideoFrame(video);
+      render();
+      scheduleVideoPreloads(state.presetIndex);
     }catch(err){
       if(loadToken === state.activeLoadToken){
-        alert('VR画像の読み込みに失敗しました。');
+        alert(isVideo ? 'VR動画の読み込みに失敗しました。' : 'VR画像の読み込みに失敗しました。');
       }
     }finally{
-      if(loadToken === state.activeLoadToken){
+      if(loadToken === state.activeLoadToken && !loadingClosed){
         setLoading(false);
       }
     }
   }
-
   async function loadPresetByIndex(index){
     const item = Array.isArray(IMAGE_PRESETS) ? IMAGE_PRESETS[index] : null;
     if(!item || !item.image) return;
-    await loadImageSource(item.image, item.label || String(index + 1));
+    await loadMediaSource(item, item.label || String(index + 1));
   }
 
   async function loadInitialPreset(){
