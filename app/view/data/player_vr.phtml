@@ -1,6 +1,7 @@
 <?php
 $vrTitle = $this->view->vrTitle ?? '';
 $imagePresets = $this->view->vrImagePresets ?? [];
+$vrDebug = !empty($this->view->vrDebug);
 if (!is_array($imagePresets)) {
   $imagePresets = [];
 }
@@ -108,6 +109,18 @@ $presetCount = count($imagePresets);
       pointer-events:none;
     }
     #loadingOverlay.show{ display:flex; }
+    #audioPromptOverlay{
+      position:fixed;
+      inset:0;
+      z-index:35;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      background:rgba(0,0,0,.58);
+      backdrop-filter: blur(6px);
+      padding:20px;
+    }
+    #audioPromptOverlay.show{ display:flex; }
     #loadingCard{
       min-width:220px;
       max-width:calc(100vw - 40px);
@@ -117,6 +130,46 @@ $presetCount = count($imagePresets);
       border-radius:16px;
       box-shadow:0 10px 30px rgba(0,0,0,.35);
       text-align:center;
+    }
+    #audioPromptCard{
+      width:min(420px, 100%);
+      padding:18px;
+      background:rgba(10,10,14,.92);
+      border:1px solid rgba(255,255,255,.14);
+      border-radius:16px;
+      box-shadow:0 14px 34px rgba(0,0,0,.42);
+    }
+    #audioPromptCard .prompt-title{
+      margin:0 0 8px;
+      font-size:16px;
+      font-weight:700;
+    }
+    #audioPromptCard .prompt-message{
+      margin:0 0 14px;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+    }
+    .audio-check{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin:0 0 14px;
+      color:#fff;
+      font-size:14px;
+      line-height:1.4;
+    }
+    .audio-check input{
+      width:18px;
+      height:18px;
+      flex:0 0 auto;
+      accent-color:var(--accent);
+    }
+    #audioPromptPlayBtn{
+      background:var(--accent-weak);
+      border-color:rgba(76,201,240,.52);
+      font-weight:700;
+      cursor:pointer;
     }
     #loadingSpinner{
       width:34px;
@@ -153,6 +206,41 @@ $presetCount = count($imagePresets);
     }
     #revealHint.show{ opacity:1; }
 
+    #audioMuteBtn{
+      position:fixed;
+      top:auto;
+      right:calc(12px + env(safe-area-inset-right));
+      bottom:calc(18px + env(safe-area-inset-bottom));
+      z-index:21;
+      display:none;
+      width:46px;
+      height:46px;
+      min-height:46px;
+      padding:0;
+      align-items:center;
+      justify-content:center;
+      background:rgba(10,10,14,.74);
+      border:1px solid var(--panel-border);
+      border-radius:50%;
+      box-shadow:0 10px 30px rgba(0,0,0,.35);
+      backdrop-filter: blur(12px);
+      cursor:pointer;
+    }
+    #audioMuteBtn.show{ display:flex; }
+    #audioMuteBtn.hidden{ display:none; }
+    #audioMuteBtn svg{
+      width:23px;
+      height:23px;
+      stroke:#fff;
+      stroke-width:2;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+      fill:none;
+    }
+    #audioMuteBtn .icon-muted{ display:none; }
+    #audioMuteBtn.muted .icon-sound{ display:none; }
+    #audioMuteBtn.muted .icon-muted{ display:block; }
+
     @media (max-width: 560px){
       .buttons, .switch-group{ grid-template-columns:1fr; }
       #menu{ width:min(320px, calc(100vw - 24px)); }
@@ -162,6 +250,18 @@ $presetCount = count($imagePresets);
 <body>
 <div id="app">
   <div id="viewer"></div>
+  <button id="audioMuteBtn" type="button" aria-label="音声をミュート" aria-pressed="false">
+    <svg class="icon-sound" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M11 5 6 9H3v6h3l5 4V5z"></path>
+      <path d="M15 9.5a4 4 0 0 1 0 5"></path>
+      <path d="M18 7a8 8 0 0 1 0 10"></path>
+    </svg>
+    <svg class="icon-muted" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M11 5 6 9H3v6h3l5 4V5z"></path>
+      <path d="m16 9 5 5"></path>
+      <path d="m21 9-5 5"></path>
+    </svg>
+  </button>
 
   <div id="menu">
     <div class="title">VR Viewer</div>
@@ -220,13 +320,27 @@ $presetCount = count($imagePresets);
   <div id="revealHint">タップでメニューを表示</div>
 </div>
 
+<div id="audioPromptOverlay" role="dialog" aria-modal="true" aria-labelledby="audioPromptTitle">
+  <div id="audioPromptCard">
+    <div class="prompt-title" id="audioPromptTitle">音声の再生確認</div>
+    <p class="prompt-message">注意：音が鳴ります。イヤホンでの再生を推奨。周りに人がいないときに再生することを推奨します。</p>
+    <label class="audio-check">
+      <input id="audioPromptEnable" type="checkbox" checked>
+      <span>音声を鳴らす</span>
+    </label>
+    <button id="audioPromptPlayBtn" type="button">再生</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 <script>
 (function () {
   const IMAGE_PRESETS = <?php echo json_encode($imagePresets, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
+  const VR_DEBUG = <?php echo $vrDebug ? 'true' : 'false'; ?>;
 
   const viewer = document.getElementById('viewer');
   const menu = document.getElementById('menu');
+  const audioMuteBtn = document.getElementById('audioMuteBtn');
   const revealHint = document.getElementById('revealHint');
   const recenterBtn = document.getElementById('recenterBtn');
   const fullscreenBtn = document.getElementById('fullscreenBtn');
@@ -238,11 +352,18 @@ $presetCount = count($imagePresets);
   const imageSwitchGroup = document.getElementById('imageSwitchGroup');
   const loadingOverlay = document.getElementById('loadingOverlay');
   const loadingText = document.getElementById('loadingText');
+  const audioPromptOverlay = document.getElementById('audioPromptOverlay');
+  const audioPromptEnable = document.getElementById('audioPromptEnable');
+  const audioPromptPlayBtn = document.getElementById('audioPromptPlayBtn');
 
   const zee = new THREE.Vector3(0, 0, 1);
   const euler = new THREE.Euler();
   const q0 = new THREE.Quaternion();
   const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+  const listenerDirection = new THREE.Vector3();
+  const listenerPosition = new THREE.Vector3();
+  const audioDirection = new THREE.Vector3();
+  const AUDIO_OFF_AXIS_VOLUME = 0.8;
 
   const state = {
     yaw: 0,
@@ -266,11 +387,16 @@ $presetCount = count($imagePresets);
     orientationReceived: false,
     presetIndex: 0,
     activeLoadToken: 0,
-    mediaYawOffset: 0
+    mediaYawOffset: 0,
+    audioMuted: false,
+    audioAvailable: false,
+    currentAudioBuffers: null
   };
 
-  let scene, camera, renderer, sphere, currentTexture = null, currentVideo = null;
+  let scene, camera, renderer, sphere, audioListener = null, audioDebugGroup = null, currentTexture = null, currentVideo = null;
   const activePointers = new Map();
+  const audioBufferCache = new Map();
+  let currentAudioSources = [];
   let pinchStartDistance = 0;
   let pinchStartFov = state.fov;
 
@@ -309,6 +435,7 @@ $presetCount = count($imagePresets);
   function setMenuHidden(hidden){
     state.hiddenMenu = hidden;
     menu.classList.toggle('hidden', hidden);
+    audioMuteBtn.classList.toggle('hidden', hidden);
     if(hidden) showHint();
   }
 
@@ -374,7 +501,14 @@ $presetCount = count($imagePresets);
 
   function render(){
     applyCamera();
+    updateDirectionalAudioVolumes();
     renderer.render(scene, camera);
+  }
+
+  function resumeAudioContext(){
+    if(audioListener && audioListener.context && audioListener.context.state === 'suspended'){
+      audioListener.context.resume().catch(() => {});
+    }
   }
 
   function animate(){
@@ -385,6 +519,9 @@ $presetCount = count($imagePresets);
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(state.fov, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position.set(0, 0, 0.1);
+    audioListener = new THREE.AudioListener();
+    camera.add(audioListener);
+    scene.add(camera);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -397,6 +534,8 @@ $presetCount = count($imagePresets);
     sphere = new THREE.Mesh(geometry, material);
     applyMediaYawOffset(IMAGE_PRESETS[0]);
     scene.add(sphere);
+    audioDebugGroup = new THREE.Group();
+    scene.add(audioDebugGroup);
 
     resize();
     animate();
@@ -413,6 +552,138 @@ $presetCount = count($imagePresets);
       currentTexture.dispose();
       currentTexture = null;
     }
+  }
+
+  function disposeAudioSources(){
+    currentAudioSources.forEach((audio) => {
+      try{
+        audio.userData.disposed = true;
+        if(audio.isPlaying){
+          audio.stop();
+        }
+        if(audio.parent){
+          audio.parent.remove(audio);
+        }
+      }catch(err){
+      }
+    });
+    currentAudioSources = [];
+  }
+
+  function updateAudioMuteButton(){
+    audioMuteBtn.classList.toggle('show', state.audioAvailable);
+    audioMuteBtn.classList.toggle('muted', state.audioMuted);
+    audioMuteBtn.setAttribute('aria-pressed', state.audioMuted ? 'true' : 'false');
+    audioMuteBtn.setAttribute('aria-label', state.audioMuted ? '音声ミュートを解除' : '音声をミュート');
+  }
+
+  function applyAudioMutedState(){
+    updateDirectionalAudioVolumes();
+    updateAudioMuteButton();
+  }
+
+  function getDirectionalAudioScale(audio){
+    if(!camera || !audio) return 1;
+    camera.getWorldDirection(listenerDirection);
+    camera.getWorldPosition(listenerPosition);
+    audio.getWorldPosition(audioDirection);
+    audioDirection.sub(listenerPosition);
+    if(audioDirection.lengthSq() <= 0.000001) return 1;
+    audioDirection.normalize();
+    const facing = clamp(listenerDirection.dot(audioDirection), -1, 1);
+    return AUDIO_OFF_AXIS_VOLUME + ((facing + 1) / 2) * (1 - AUDIO_OFF_AXIS_VOLUME);
+  }
+
+  function updateDirectionalAudioVolumes(){
+    currentAudioSources.forEach((audio) => {
+      const baseVolume = Number.isFinite(audio.userData.baseVolume) ? audio.userData.baseVolume : 1;
+      const directionalScale = getDirectionalAudioScale(audio);
+      audio.setVolume(state.audioMuted ? 0 : baseVolume * directionalScale);
+    });
+  }
+
+  function setAudioAvailable(available, muted = state.audioMuted, audioBuffers = null){
+    state.audioAvailable = !!available;
+    state.audioMuted = !!muted;
+    state.currentAudioBuffers = audioBuffers;
+    if(!state.audioAvailable){
+      state.currentAudioBuffers = null;
+      state.audioMuted = false;
+      disposeAudioSources();
+    }
+    applyAudioMutedState();
+  }
+
+  function toggleAudioMuted(){
+    if(!state.audioAvailable) return;
+    state.audioMuted = !state.audioMuted;
+    if(!state.audioMuted && currentAudioSources.length === 0 && state.currentAudioBuffers){
+      resumeAudioContext();
+      applyAudioForPreset(state.currentAudioBuffers);
+    }
+    applyAudioMutedState();
+  }
+
+  function clearAudioDebugMarkers(){
+    if(!audioDebugGroup) return;
+    while(audioDebugGroup.children.length){
+      const child = audioDebugGroup.children.pop();
+      if(child.material){
+        if(child.material.map){
+          child.material.map.dispose();
+        }
+        child.material.dispose();
+      }
+    }
+  }
+
+  function createAudioDebugTexture(index){
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, 44, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(76, 201, 240, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 7;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.stroke();
+    ctx.fillStyle = '#05070a';
+    ctx.font = '700 54px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(index), size / 2, size / 2 + 2);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  function renderAudioDebugMarkers(item){
+    if(!VR_DEBUG || !audioDebugGroup) return;
+    clearAudioDebugMarkers();
+    getAudioItems(item).forEach((audioItem, index) => {
+      const position = Array.isArray(audioItem.position) ? audioItem.position : null;
+      if(!position) return;
+      const texture = createAudioDebugTexture(index + 1);
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        depthTest: false,
+        depthWrite: false,
+        transparent: true
+      });
+      const sprite = new THREE.Sprite(material);
+      sprite.position.set(
+        Number(position[0]) || 0,
+        Number(position[1]) || 0,
+        Number(position[2]) || 0
+      );
+      sprite.scale.set(1.2, 1.2, 1.2);
+      audioDebugGroup.add(sprite);
+    });
+    render();
   }
 
   function applyTexture(texture){
@@ -460,8 +731,143 @@ $presetCount = count($imagePresets);
   }
 
   function formatVideoLoadText(stage, percent){
-    const base = stage === 'metadata' ? '動画情報を読み込み中...' : '動画を読み込み中...';
+    const base = stage === 'metadata' ? '動画情報を読み込み中...' : '動画と音声を読み込み中...';
     return percent == null ? base : (base + ' ' + percent + '%');
+  }
+
+  function getAudioItems(item){
+    if(item && Array.isArray(item.selectedAudio)){
+      return item.selectedAudio;
+    }
+    return item && Array.isArray(item.audio) ? item.audio : [];
+  }
+
+  function getAudioSrc(audioItem){
+    return audioItem && audioItem.src ? String(audioItem.src) : '';
+  }
+
+  function chooseWeightedAudioVariant(variants){
+    const choices = Array.isArray(variants) ? variants.filter((variant) => variant && variant.src) : [];
+    if(choices.length === 0) return null;
+    const total = choices.reduce((sum, variant) => {
+      const weight = Number(variant.weight);
+      return sum + (Number.isFinite(weight) && weight > 0 ? weight : 0);
+    }, 0);
+    if(total <= 0){
+      return choices[Math.floor(Math.random() * choices.length)];
+    }
+
+    let target = Math.random() * total;
+    for(const variant of choices){
+      const weight = Number(variant.weight);
+      const normalized = Number.isFinite(weight) && weight > 0 ? weight : 0;
+      target -= normalized;
+      if(target <= 0){
+        return variant;
+      }
+    }
+    return choices[choices.length - 1];
+  }
+
+  function prepareAudioItems(item){
+    if(!item || !Array.isArray(item.audio)){
+      return [];
+    }
+    item.selectedAudio = item.audio.map((audioItem) => {
+      if(!audioItem || !Array.isArray(audioItem.variants)){
+        return audioItem;
+      }
+      const variants = audioItem.variants.filter((variant) => variant && variant.src);
+      return Object.assign({}, audioItem, { variants });
+    }).filter((audioItem) => !!getAudioSrc(audioItem) || (Array.isArray(audioItem.variants) && audioItem.variants.length > 0));
+    return item.selectedAudio;
+  }
+
+  function getPresetLoadSources(item){
+    const sources = [];
+    const mediaSrc = getMediaSrc(item);
+    if(mediaSrc){
+      sources.push(mediaSrc);
+    }
+    getAudioItems(item).forEach((audioItem) => {
+      if(Array.isArray(audioItem.variants)){
+        audioItem.variants.forEach((variant) => {
+          if(variant && variant.src){
+            variant.loadIndex = sources.length;
+            sources.push(variant.src);
+          }
+        });
+        return;
+      }
+      const src = getAudioSrc(audioItem);
+      if(src){
+        audioItem.loadIndex = sources.length;
+        sources.push(src);
+      }
+    });
+    return sources;
+  }
+
+  async function getContentLength(src){
+    try{
+      const response = await fetch(src, { method: 'HEAD', cache: 'force-cache' });
+      if(!response.ok) return 0;
+      const length = Number(response.headers.get('Content-Length') || 0);
+      return Number.isFinite(length) && length > 0 ? length : 0;
+    }catch(err){
+      return 0;
+    }
+  }
+
+  async function createPresetLoadProgress(item, onProgress){
+    const sources = getPresetLoadSources(item);
+    const totals = await Promise.all(sources.map(getContentLength));
+    const loaded = sources.map(() => 0);
+    let lastPercent = null;
+
+    const notify = () => {
+      const totalBytes = totals.reduce((sum, value) => sum + value, 0);
+      if(totalBytes <= 0){
+        lastPercent = null;
+        if(typeof onProgress === 'function'){
+          onProgress(null);
+        }
+        return;
+      }
+      const loadedBytes = loaded.reduce((sum, value) => sum + value, 0);
+      lastPercent = clamp(Math.floor((loadedBytes / totalBytes) * 100), 0, 99);
+      if(typeof onProgress === 'function'){
+        onProgress(lastPercent);
+      }
+    };
+
+    return {
+      get percent(){
+        return lastPercent;
+      },
+      report(index, loadedBytes, totalBytes){
+        if(!Number.isInteger(index) || index < 0 || index >= loaded.length) return;
+        if(Number.isFinite(totalBytes) && totalBytes > totals[index]){
+          totals[index] = totalBytes;
+        }
+        loaded[index] = Math.max(loaded[index], Number(loadedBytes) || 0);
+        notify();
+      },
+      complete(index, totalBytes){
+        if(!Number.isInteger(index) || index < 0 || index >= loaded.length) return;
+        if(Number.isFinite(totalBytes) && totalBytes > totals[index]){
+          totals[index] = totalBytes;
+        }
+        loaded[index] = totals[index] > 0 ? totals[index] : Math.max(loaded[index], Number(totalBytes) || 0);
+        notify();
+      },
+      finish(){
+        lastPercent = 100;
+        if(typeof onProgress === 'function'){
+          onProgress(100);
+        }
+      }
+    };
   }
 
   const VIDEO_PRELOAD_MAX_READY = 3;
@@ -525,12 +931,15 @@ $presetCount = count($imagePresets);
     }
   }
 
-  async function readResponseBlobWithProgress(response, entry){
+  async function readResponseBlobWithProgress(response, entry, onBytes){
     const total = Number(response.headers.get('Content-Length') || 0);
     const contentType = response.headers.get('Content-Type') || 'video/mp4';
 
     if(!response.body || !response.body.getReader){
       const blob = await response.blob();
+      if(typeof onBytes === 'function'){
+        onBytes(blob.size, total || blob.size);
+      }
       entry.percent = 100;
       notifyVideoPreload(entry, 'download', 100);
       return blob;
@@ -552,19 +961,28 @@ $presetCount = count($imagePresets);
         }else{
           notifyVideoPreload(entry, 'download', null);
         }
+        if(typeof onBytes === 'function'){
+          onBytes(loaded, total);
+        }
       }
     }
 
+    if(typeof onBytes === 'function'){
+      onBytes(total || loaded, total || loaded);
+    }
     entry.percent = 100;
     notifyVideoPreload(entry, 'download', 100);
     return new Blob(chunks, { type: contentType });
   }
 
-  function startVideoPreload(item){
+  function startVideoPreload(item, onBytes){
     const entry = getVideoPreloadEntry(item);
     if(!entry) return Promise.reject(new Error('Video source is empty'));
     if(entry.status === 'ready' && entry.objectUrl){
       touchVideoPreload(entry);
+      if(typeof onBytes === 'function'){
+        onBytes(1, 1);
+      }
       return Promise.resolve(entry.objectUrl);
     }
     if(entry.promise){
@@ -580,7 +998,7 @@ $presetCount = count($imagePresets);
         throw new Error('Video preload failed');
       }
 
-      const blob = await readResponseBlobWithProgress(response, entry);
+      const blob = await readResponseBlobWithProgress(response, entry, onBytes);
       if(entry.objectUrl){
         URL.revokeObjectURL(entry.objectUrl);
       }
@@ -601,7 +1019,7 @@ $presetCount = count($imagePresets);
     return entry.promise;
   }
 
-  function preloadVideoForUse(item, onProgress){
+  function preloadVideoForUse(item, onProgress, onBytes){
     const entry = getVideoPreloadEntry(item);
     if(!entry) return Promise.reject(new Error('Video source is empty'));
 
@@ -610,28 +1028,213 @@ $presetCount = count($imagePresets);
       onProgress('download', entry.percent);
     }
 
-    return startVideoPreload(item).finally(() => {
+    return startVideoPreload(item, onBytes).finally(() => {
       if(typeof onProgress === 'function'){
         entry.listeners.delete(onProgress);
       }
     });
   }
 
-  async function loadVideoForPreset(item, onProgress){
+  async function loadVideoForPreset(item, onProgress, onBytes, autoPlay = true){
     if(!shouldPreloadVideo(item)){
-      return loadVideo(item.image, onProgress);
+      return loadVideo(item.image, onProgress, autoPlay);
     }
 
     const objectUrl = await preloadVideoForUse(item, (stage, percent) => {
       if(typeof onProgress === 'function'){
         onProgress(stage, percent);
       }
-    });
+    }, onBytes);
 
     return loadVideo(objectUrl, (stage, percent) => {
       if(typeof onProgress === 'function'){
         onProgress(stage, percent == null ? 100 : percent);
       }
+    }, autoPlay);
+  }
+
+  async function readResponseArrayBufferWithProgress(response, onBytes){
+    const total = Number(response.headers.get('Content-Length') || 0);
+    if(!response.body || !response.body.getReader){
+      const buffer = await response.arrayBuffer();
+      if(typeof onBytes === 'function'){
+        onBytes(buffer.byteLength, total || buffer.byteLength);
+      }
+      return buffer;
+    }
+
+    const reader = response.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    while(true){
+      const result = await reader.read();
+      if(result.done) break;
+      if(result.value){
+        chunks.push(result.value);
+        loaded += result.value.length;
+        if(typeof onBytes === 'function'){
+          onBytes(loaded, total);
+        }
+      }
+    }
+
+    const buffer = new Uint8Array(loaded);
+    let offset = 0;
+    chunks.forEach((chunk) => {
+      buffer.set(chunk, offset);
+      offset += chunk.length;
+    });
+    if(typeof onBytes === 'function'){
+      onBytes(total || loaded, total || loaded);
+    }
+    return buffer.buffer;
+  }
+
+  async function loadAudioBuffer(audioItem, onBytes){
+    const src = getAudioSrc(audioItem);
+    if(!src) return null;
+    if(audioBufferCache.has(src)){
+      if(typeof onBytes === 'function'){
+        onBytes(1, 1);
+      }
+      return audioBufferCache.get(src);
+    }
+
+    const response = await fetch(src, { cache: 'force-cache' });
+    if(!response.ok){
+      throw new Error('Audio preload failed');
+    }
+    const arrayBuffer = await readResponseArrayBufferWithProgress(response, onBytes);
+    const audioBuffer = await audioListener.context.decodeAudioData(arrayBuffer.slice(0));
+    audioBufferCache.set(src, audioBuffer);
+    return audioBuffer;
+  }
+
+  async function loadAudioForPreset(item, progress){
+    const audioItems = getAudioItems(item);
+    const results = [];
+    for(let i = 0; i < audioItems.length; i++){
+      const audioItem = audioItems[i];
+      if(Array.isArray(audioItem.variants) && audioItem.variants.length > 0){
+        const variants = [];
+        for(const variant of audioItem.variants){
+          const buffer = await loadAudioBuffer(variant, (loadedBytes, totalBytes) => {
+            if(progress){
+              progress.report(variant.loadIndex, loadedBytes, totalBytes);
+            }
+          });
+          if(buffer && progress){
+            progress.complete(variant.loadIndex);
+          }
+          if(buffer){
+            variants.push(Object.assign({}, variant, { buffer }));
+          }
+        }
+        if(variants.length > 0){
+          results.push({ item: audioItem, variants });
+        }
+        continue;
+      }
+      const sourceIndex = audioItem.loadIndex;
+      const buffer = await loadAudioBuffer(audioItem, (loadedBytes, totalBytes) => {
+        if(progress){
+          progress.report(sourceIndex, loadedBytes, totalBytes);
+        }
+      });
+      if(buffer && progress){
+        progress.complete(sourceIndex);
+      }
+      if(buffer){
+        results.push({ item: audioItem, buffer });
+      }
+    }
+    return results;
+  }
+
+  function applyAudioForPreset(audioBuffers){
+    disposeAudioSources();
+    if(!audioListener || !Array.isArray(audioBuffers)) return;
+
+    audioBuffers.forEach(({ item, buffer, variants }) => {
+      const audio = new THREE.PositionalAudio(audioListener);
+      const baseVolume = Number.isFinite(Number(item.volume)) ? Number(item.volume) : 1;
+      audio.userData.baseVolume = baseVolume;
+      audio.setVolume(state.audioMuted ? 0 : baseVolume * getDirectionalAudioScale(audio));
+      audio.setRefDistance(Number.isFinite(Number(item.refDistance)) ? Number(item.refDistance) : 8);
+      audio.setRolloffFactor(Number.isFinite(Number(item.rolloffFactor)) ? Number(item.rolloffFactor) : 1);
+      audio.setDistanceModel(item.distanceModel || 'inverse');
+
+      const position = Array.isArray(item.position) ? item.position : [0, 0, -10];
+      audio.position.set(
+        Number(position[0]) || 0,
+        Number(position[1]) || 0,
+        Number(position[2]) || 0
+      );
+      scene.add(audio);
+      currentAudioSources.push(audio);
+
+      if(Array.isArray(variants) && variants.length > 0){
+        audio.userData.disposed = false;
+        let sequenceIndex = 0;
+        const playNextVariant = () => {
+          if(audio.userData.disposed || !audio.parent) return;
+          const mode = item.mode === 'sequence' ? 'sequence' : 'random';
+          let variant = null;
+          if(mode === 'sequence'){
+            variant = variants[sequenceIndex % variants.length];
+            sequenceIndex++;
+          }else{
+            variant = chooseWeightedAudioVariant(variants);
+          }
+          if(!variant || !variant.buffer) return;
+          try{
+            if(audio.isPlaying){
+              audio.stop();
+            }
+            audio.setBuffer(variant.buffer);
+            audio.setLoop(false);
+            audio.play();
+            if(audio.source){
+              const onEnded = audio.source.onended;
+              audio.source.onended = () => {
+                if(typeof onEnded === 'function'){
+                  onEnded();
+                }
+                playNextVariant();
+              };
+            }
+          }catch(err){
+          }
+        };
+        playNextVariant();
+        return;
+      }
+
+      if(buffer){
+        audio.setBuffer(buffer);
+        audio.setLoop(item.loop !== false);
+        try{
+          audio.play();
+        }catch(err){
+        }
+      }
+    });
+  }
+
+  audioMuteBtn.addEventListener('click', toggleAudioMuted);
+
+  function requestPlaybackWithAudioPrompt(){
+    audioPromptEnable.checked = true;
+    audioPromptOverlay.classList.add('show');
+    return new Promise((resolve) => {
+      const onPlay = () => {
+        audioPromptPlayBtn.removeEventListener('click', onPlay);
+        audioPromptOverlay.classList.remove('show');
+        resumeAudioContext();
+        resolve(audioPromptEnable.checked);
+      };
+      audioPromptPlayBtn.addEventListener('click', onPlay);
+      audioPromptPlayBtn.focus();
     });
   }
 
@@ -684,7 +1287,7 @@ $presetCount = count($imagePresets);
     });
   });
 
-  function loadVideo(src, onProgress){
+  function loadVideo(src, onProgress, autoPlay = true){
     return new Promise((resolve, reject) => {
       const video = document.createElement('video');
       video.crossOrigin = 'anonymous';
@@ -721,12 +1324,14 @@ $presetCount = count($imagePresets);
       const onReady = async () => {
         if(resolved) return;
         report('buffering');
-        try{
-          await video.play();
-        }catch(err){
-          cleanup();
-          reject(err);
-          return;
+        if(autoPlay){
+          try{
+            await video.play();
+          }catch(err){
+            cleanup();
+            reject(err);
+            return;
+          }
         }
         resolved = true;
         cleanup();
@@ -793,7 +1398,8 @@ $presetCount = count($imagePresets);
       const imageName = url.searchParams.get('image') || url.searchParams.get('f') || url.pathname;
       return imageName.toLowerCase().endsWith('.mp4') || imageName.toLowerCase().startsWith('movie:');
     }catch(err){
-      return src.split('?')[0].toLowerCase().endsWith('.mp4');
+      const cleanSrc = src.split('?')[0].toLowerCase();
+      return cleanSrc.endsWith('.mp4') || cleanSrc.startsWith('movie:');
     }
   }
 
@@ -809,6 +1415,8 @@ $presetCount = count($imagePresets);
         const img = await loadImage(item.image);
         if(loadToken !== state.activeLoadToken) return;
         applyMediaYawOffset(item);
+        setAudioAvailable(false);
+        clearAudioDebugMarkers();
         applyTextureFromImage(img);
         setLoading(false);
         loadingClosed = true;
@@ -816,20 +1424,60 @@ $presetCount = count($imagePresets);
         return;
       }
 
-      const video = await loadVideoForPreset(item, (stage, percent) => {
+      const hasAudio = prepareAudioItems(item).length > 0;
+      const progress = await createPresetLoadProgress(item, (percent) => {
         if(loadToken !== state.activeLoadToken) return;
-        const text = formatVideoLoadText(stage, percent);
+        const text = formatVideoLoadText('download', percent);
         setLoading(true, label ? (text + ' ' + label) : text);
       });
+      const video = await loadVideoForPreset(item, (stage) => {
+        if(loadToken !== state.activeLoadToken) return;
+        const text = formatVideoLoadText(stage, progress.percent);
+        setLoading(true, label ? (text + ' ' + label) : text);
+      }, (loadedBytes, totalBytes) => {
+        progress.report(0, loadedBytes, totalBytes);
+      }, !hasAudio);
       if(loadToken !== state.activeLoadToken){
         video.pause();
         video.removeAttribute('src');
         video.load();
         return;
       }
+      progress.complete(0);
+      const audioBuffers = await loadAudioForPreset(item, progress);
+      if(loadToken !== state.activeLoadToken){
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        return;
+      }
+      progress.finish();
       applyMediaYawOffset(item);
       applyTextureFromVideo(video);
-      setLoading(true, label ? ('再生準備中... ' + label) : '再生準備中...');
+      renderAudioDebugMarkers(item);
+      if(hasAudio){
+        setLoading(false);
+        loadingClosed = true;
+        const soundEnabled = await requestPlaybackWithAudioPrompt();
+        if(loadToken !== state.activeLoadToken){
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+          return;
+        }
+        setLoading(true, label ? ('再生準備中... ' + label) : '再生準備中...');
+        if(soundEnabled){
+          setAudioAvailable(true, false, audioBuffers);
+          applyAudioForPreset(audioBuffers);
+        }else{
+          setAudioAvailable(false);
+        }
+        loadingClosed = false;
+        await video.play();
+      }else{
+        setAudioAvailable(false);
+        setLoading(true, label ? ('再生準備中... ' + label) : '再生準備中...');
+      }
       await waitForVideoFrame(video);
       render();
       scheduleVideoPreloads(state.presetIndex);
@@ -1023,6 +1671,7 @@ $presetCount = count($imagePresets);
   }
 
   viewer.addEventListener('pointerdown', (e) => {
+    resumeAudioContext();
     state.dragging = true;
     state.lastX = e.clientX;
     state.lastY = e.clientY;

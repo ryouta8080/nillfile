@@ -62,10 +62,12 @@ class DataPage extends PTUserPage
 			->set("f",null, PCV::vString(),PCV::vMaxLength(255))
 			->set("k",null, PCV::vString(),PCV::vMaxLength(255))
 			->set("m","play", PCV::vInArray(["play","download"]))
+			->setAllowEmpty("debug", 0, PCV::vInArray([0,1,'0','1']))
 		);
 		$file = $post["f"];
 		$key = $post["k"];
 		$mode = $post["m"];
+		$debug = (string)$post["debug"] === '1';
 		
 		$host = "file.nilwork.net";
 		if(isset($_SERVER["HTTP_HOST"])){
@@ -202,6 +204,7 @@ class DataPage extends PTUserPage
 				}
 
 				$this->view->vrImagePresets = $vrImagePresets;
+				$this->view->vrDebug = $debug;
 				$this->view->vrTitle = isset($fileConfig['title']) ? (string)$fileConfig['title'] : '';
 				$this->view->fileName = $this->buildTrackedFileName($fileConfig);
 				$this->setTemplatePath("data/player_vr.phtml");
@@ -243,26 +246,33 @@ class DataPage extends PTUserPage
 				continue;
 			}
 
-			$audioCode = $audioItem['file'] ?? ($audioItem['audio'] ?? ($audioItem['src'] ?? null));
-			if (!is_string($audioCode) || trim($audioCode) === '') {
-				continue;
-			}
-
-			$audioCode = trim($audioCode);
-			list($audioType) = $this->parseFileType($audioCode);
-			if ($audioType !== 'audio' && $audioType !== 'file' && $audioType !== 'movie') {
-				continue;
-			}
-
-			$audioConfig = $this->loadFileConfigByCode($audioCode);
-			if ($audioConfig === false || !$audioConfig || !$this->checkPermision($audioConfig)) {
-				continue;
-			}
-
 			$item = [
-				'src' => "https://" . $host . "/data/file/?f=" . rawurlencode($audioCode) . "&k=" . rawurlencode($audioConfig['key']) . "&m=play",
 				'loop' => isset($audioItem['loop']) ? (bool)$audioItem['loop'] : true,
 			];
+			$audioCode = $audioItem['file'] ?? ($audioItem['audio'] ?? ($audioItem['src'] ?? null));
+			if (is_string($audioCode) && trim($audioCode) !== '') {
+				$audioCode = trim($audioCode);
+				list($audioType) = $this->parseFileType($audioCode);
+				if ($audioType !== 'audio' && $audioType !== 'file' && $audioType !== 'movie') {
+					continue;
+				}
+
+				$audioConfig = $this->loadFileConfigByCode($audioCode);
+				if ($audioConfig === false || !$audioConfig || !$this->checkPermision($audioConfig)) {
+					continue;
+				}
+
+				$item['src'] = "https://" . $host . "/data/file/?f=" . rawurlencode($audioCode) . "&k=" . rawurlencode($audioConfig['key']) . "&m=play";
+			} else if (isset($audioItem['files']) && is_array($audioItem['files'])) {
+				$variants = $this->buildVrAudioVariants($audioItem['files'], $host);
+				if (!$variants) {
+					continue;
+				}
+				$item['mode'] = isset($audioItem['mode']) && is_string($audioItem['mode']) ? trim($audioItem['mode']) : 'random';
+				$item['variants'] = $variants;
+			} else {
+				continue;
+			}
 			if (isset($audioItem['volume']) && is_numeric($audioItem['volume'])) {
 				$item['volume'] = (float)$audioItem['volume'];
 			}
@@ -274,6 +284,37 @@ class DataPage extends PTUserPage
 		}
 
 		return $items;
+	}
+
+	protected function buildVrAudioVariants(array $audioFiles, string $host): array
+	{
+		$variants = [];
+		foreach ($audioFiles as $audioFile) {
+			if (is_string($audioFile)) {
+				$audioFile = ['file' => $audioFile];
+			}
+			if (!is_array($audioFile)) {
+				continue;
+			}
+			$audioCode = $audioFile['file'] ?? ($audioFile['audio'] ?? ($audioFile['src'] ?? null));
+			if (!is_string($audioCode) || trim($audioCode) === '') {
+				continue;
+			}
+			$audioCode = trim($audioCode);
+			list($audioType) = $this->parseFileType($audioCode);
+			if ($audioType !== 'audio' && $audioType !== 'file' && $audioType !== 'movie') {
+				continue;
+			}
+			$audioConfig = $this->loadFileConfigByCode($audioCode);
+			if ($audioConfig === false || !$audioConfig || !$this->checkPermision($audioConfig)) {
+				continue;
+			}
+			$variants[] = [
+				'src' => "https://" . $host . "/data/file/?f=" . rawurlencode($audioCode) . "&k=" . rawurlencode($audioConfig['key']) . "&m=play",
+				'weight' => isset($audioFile['weight']) && is_numeric($audioFile['weight']) ? max(0.0, (float)$audioFile['weight']) : 1.0,
+			];
+		}
+		return $variants;
 	}
 
 	public function smAction()
