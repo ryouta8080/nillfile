@@ -607,7 +607,7 @@ class DataPage extends PTUserPage
 			return;
 		}
 
-		$zipFileName = $this->buildSafeZipFileName((string)($rows[0]['title'] ?? ('content-' . $contentId)), $contentId);
+		$zipFileName = $this->buildSafeZipFileName((string)($rows[0]['title'] ?? ('content-' . $contentId)), $contentId, (string)($rows[0]['reg_datetime'] ?? ''));
 		$this->util->addDownloadHistory($zipFileName, 'content:' . $contentId . ':zip', $this->member);
 
 		header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -670,6 +670,7 @@ class DataPage extends PTUserPage
 				'status',
 				'publish_start_at',
 				'publish_end_at',
+				'reg_datetime',
 			]);
 			$fileModel->where('content_file.content_id=?', [$contentId]);
 			$fileModel->join('content_id', $itemModel, 'content_id');
@@ -789,19 +790,23 @@ class DataPage extends PTUserPage
 		return $next;
 	}
 
-	protected function buildSafeZipFileName(string $title, int $contentId): string
+	protected function buildSafeZipFileName(string $title, int $contentId, string $regDatetime): string
 	{
 		$name = trim($title);
 		$name = str_replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|', "\0"], '_', $name);
 		if ($name === '') {
 			$name = 'content';
 		}
+		$date = $regDatetime !== '' ? date('Ymd', strtotime($regDatetime)) : date('Ymd');
+		if (!$date || $date === '19700101') {
+			$date = date('Ymd');
+		}
 		if (function_exists('mb_substr')) {
 			$name = mb_substr($name, 0, 120);
 		} else {
 			$name = substr($name, 0, 120);
 		}
-		return $contentId . '_' . $name . '.zip';
+		return $date . '_' . $contentId . '_' . $name . '.zip';
 	}
 
 	protected function sendInlineFile(string $filePath): void
