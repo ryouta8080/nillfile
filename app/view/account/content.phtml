@@ -232,7 +232,6 @@ $this->load($this->getViewPath() . "header.phtml");
           $copyLines[] = (string)($copyIndex + 1);
           $copyLines[] = $copyUrl;
       }
-      $copyText = implode("\n", $copyLines);
       $copyTargetId = 'contentUrlList' . (int)$contentId;
       $contentZipKey = '';
       $hasContentZipTarget = false;
@@ -247,6 +246,11 @@ $this->load($this->getViewPath() . "header.phtml");
       $contentZipUrl = ($contentZipKey !== '' && $hasContentZipTarget)
           ? $baseUrl . '/data/contentzip?c=' . (int)$contentId . '&k=' . rawurlencode($contentZipKey)
           : '';
+      if ($contentZipUrl !== '') {
+          $copyLines[] = 'zip';
+          $copyLines[] = $contentZipUrl;
+      }
+      $copyText = implode("\n", $copyLines);
     ?>
     <section class="border rounded p-3 mb-4">
       <form method="post" action="/account/content">
