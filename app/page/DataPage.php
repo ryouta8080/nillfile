@@ -607,7 +607,7 @@ class DataPage extends PTUserPage
 			return;
 		}
 
-		$zipFileName = $this->buildSafeZipFileName((string)($rows[0]['title'] ?? ('content-' . $contentId)));
+		$zipFileName = $this->buildSafeZipFileName((string)($rows[0]['title'] ?? ('content-' . $contentId)), $contentId);
 		$this->util->addDownloadHistory($zipFileName, 'content:' . $contentId . ':zip', $this->member);
 
 		header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -789,7 +789,7 @@ class DataPage extends PTUserPage
 		return $next;
 	}
 
-	protected function buildSafeZipFileName(string $title): string
+	protected function buildSafeZipFileName(string $title, int $contentId): string
 	{
 		$name = trim($title);
 		$name = str_replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|', "\0"], '_', $name);
@@ -801,7 +801,7 @@ class DataPage extends PTUserPage
 		} else {
 			$name = substr($name, 0, 120);
 		}
-		return $name . '.zip';
+		return $contentId . '_' . $name . '.zip';
 	}
 
 	protected function sendInlineFile(string $filePath): void
