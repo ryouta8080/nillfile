@@ -554,6 +554,256 @@ class DataPage extends PTUserPage
 		return;
 	}
 
+	public function contentzipAction()
+	{
+		if(!$this->member){
+			return $this->notfoundAction();
+		}
+
+		if(!$this->checkContentZipReferer()){
+			$this->displayNotFound();
+			return;
+		}
+
+		$post = $this->getGet(
+			PCF::useParam()
+			->set("c",null, PCV::vString(),PCV::vMaxLength(32))
+			->set("k",null, PCV::vString(),PCV::vMaxLength(255))
+		);
+		$contentId = (int)$post["c"];
+		$key = (string)$post["k"];
+		if ($contentId <= 0 || $key === '') {
+			$this->displayNotFound();
+			return;
+		}
+
+		$rows = $this->loadContentV2ZipRows($contentId);
+		if (!$rows) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$keyOk = false;
+		foreach ($rows as $row) {
+			if ((string)($row['file_key'] ?? '') === $key) {
+				$keyOk = true;
+				break;
+			}
+		}
+		if (!$keyOk) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$contentConfig = $this->buildContentV2ConfigFromZipRow($rows[0]);
+		if (!$this->checkPermision($contentConfig)) {
+			$this->displayNoPermision();
+			return;
+		}
+
+		$tmp = $this->createContentV2Zip($rows);
+		if ($tmp === false) {
+			$this->configLoadErrorAction();
+			return;
+		}
+
+		$zipFileName = $this->buildSafeZipFileName((string)($rows[0]['title'] ?? ('content-' . $contentId)));
+		$this->util->addDownloadHistory($zipFileName, 'content:' . $contentId . ':zip', $this->member);
+
+		header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+		header("Pragma: no-cache");
+		header("Expires: 0");
+		header('Content-Description: File Transfer');
+		header('Content-Type: application/zip');
+		header('Content-Disposition: attachment; filename="' . $zipFileName . '"');
+		header('Content-Transfer-Encoding: binary');
+		header('Content-Length: ' . filesize($tmp));
+		if (ob_get_level()) {
+			@ob_clean();
+		}
+		flush();
+		readfile($tmp);
+		@unlink($tmp);
+		return;
+	}
+
+	protected function checkContentZipReferer(): bool
+	{
+		$host = isset($_SERVER["HTTP_HOST"]) ? (string)$_SERVER["HTTP_HOST"] : '';
+		$referer = isset($_SERVER['HTTP_REFERER']) ? (string)$_SERVER['HTTP_REFERER'] : '';
+		$refererHost = $referer !== '' ? parse_url($referer, PHP_URL_HOST) : '';
+		if ($refererHost === $host || $refererHost === 'www.patreon.com' || $refererHost === 'patreon.com') {
+			return true;
+		}
+		if ($this->isDebug()) {
+			$post = $this->getGet(
+				PCF::useParam()
+				->setAllowEmpty("debug", 0, PCV::vInArray([0,1,'0','1']))
+			);
+			return (string)$post["debug"] === '1';
+		}
+		return false;
+	}
+
+	protected function loadContentV2ZipRows(int $contentId): array
+	{
+		try {
+			$fileModel = new ContentFileModel();
+			$itemModel = new ContentItemModel();
+			$fileModel->setCol([
+				'file_id',
+				'content_id',
+				'file_type',
+				'code',
+				'file_key',
+				'storage_path',
+				'original_name',
+				'display_name',
+				'mime_type',
+				'file_size',
+				'sort_order',
+			]);
+			$itemModel->setCol([
+				'title',
+				'description',
+				'plan',
+				'status',
+				'publish_start_at',
+				'publish_end_at',
+			]);
+			$fileModel->where('content_file.content_id=?', [$contentId]);
+			$fileModel->join('content_id', $itemModel, 'content_id');
+			$fileModel->orderBy('content_file.sort_order ASC, content_file.file_id ASC');
+			$data = $fileModel->select();
+			if ($data && $data->total > 0) {
+				return $data->data;
+			}
+		} catch (Exception $e) {
+			return [];
+		}
+		return [];
+	}
+
+	protected function buildContentV2ConfigFromZipRow(array $row): array
+	{
+		return [
+			'key' => (string)($row['file_key'] ?? ''),
+			'plan' => (string)($row['plan'] ?? 'paid'),
+			'title' => (string)($row['title'] ?? ''),
+			'desc' => (string)($row['description'] ?? ''),
+			'v2' => true,
+			'content_id' => (int)($row['content_id'] ?? 0),
+			'file_id' => (int)($row['file_id'] ?? 0),
+			'status' => (string)($row['status'] ?? 'draft'),
+			'publish_start_at' => $row['publish_start_at'] ?? null,
+			'publish_end_at' => $row['publish_end_at'] ?? null,
+		];
+	}
+
+	protected function createContentV2Zip(array $rows)
+	{
+		if (!class_exists('ZipArchive')) {
+			return false;
+		}
+		$tmp = tempnam(sys_get_temp_dir(), 'nill_content_zip_');
+		if ($tmp === false) {
+			return false;
+		}
+		$zip = new ZipArchive();
+		if ($zip->open($tmp, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+			@unlink($tmp);
+			return false;
+		}
+
+		$added = 0;
+		$addedNames = [];
+		$base = realpath(PCPath::systemRoot() . 'app/res/content/');
+		if ($base === false) {
+			$zip->close();
+			@unlink($tmp);
+			return false;
+		}
+
+		foreach ($rows as $row) {
+			if (($row['file_type'] ?? '') === 'vr') {
+				continue;
+			}
+			$real = $this->resolveContentV2ZipRealPath((string)($row['storage_path'] ?? ''), $base);
+			if ($real === false || !is_file($real)) {
+				continue;
+			}
+			$entryName = $this->buildContentV2ZipEntryName($row);
+			$entryName = $this->uniqueContentV2ZipEntryName($entryName, $addedNames);
+			if ($zip->addFile($real, $entryName)) {
+				$added++;
+				$addedNames[$entryName] = true;
+			}
+		}
+
+		$zip->close();
+		if ($added <= 0) {
+			@unlink($tmp);
+			return false;
+		}
+		return $tmp;
+	}
+
+	protected function resolveContentV2ZipRealPath(string $storagePath, string $base)
+	{
+		$storagePath = ltrim(str_replace(['../', '..\\', '\\'], ['', '', '/'], $storagePath), '/');
+		if ($storagePath === '') {
+			return false;
+		}
+		$path = $base . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $storagePath);
+		$real = realpath($path);
+		if ($real === false || strpos($real, $base . DIRECTORY_SEPARATOR) !== 0) {
+			return false;
+		}
+		return $real;
+	}
+
+	protected function buildContentV2ZipEntryName(array $row): string
+	{
+		$name = (string)($row['display_name'] ?: ($row['original_name'] ?: basename((string)($row['storage_path'] ?? ''))));
+		$name = str_replace(['\\', '/', "\0"], ['_', '_', ''], $name);
+		$name = trim($name, " \t\n\r\0\x0B.");
+		if ($name === '') {
+			$name = 'file-' . (int)($row['file_id'] ?? 0);
+		}
+		return $name;
+	}
+
+	protected function uniqueContentV2ZipEntryName(string $name, array $used): string
+	{
+		if (!isset($used[$name])) {
+			return $name;
+		}
+		$ext = pathinfo($name, PATHINFO_EXTENSION);
+		$base = pathinfo($name, PATHINFO_FILENAME);
+		$suffix = $ext !== '' ? '.' . $ext : '';
+		$i = 2;
+		do {
+			$next = $base . '_' . $i . $suffix;
+			$i++;
+		} while (isset($used[$next]));
+		return $next;
+	}
+
+	protected function buildSafeZipFileName(string $title): string
+	{
+		$name = trim($title);
+		$name = str_replace(['\\', '/', ':', '*', '?', '"', '<', '>', '|', "\0"], '_', $name);
+		if ($name === '') {
+			$name = 'content';
+		}
+		if (function_exists('mb_substr')) {
+			$name = mb_substr($name, 0, 120);
+		} else {
+			$name = substr($name, 0, 120);
+		}
+		return $name . '.zip';
+	}
+
 	protected function sendInlineFile(string $filePath): void
 	{
 		$fileSize = filesize($filePath);
