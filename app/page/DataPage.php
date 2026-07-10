@@ -94,6 +94,9 @@ class DataPage extends PTUserPage
 			$this->displayNoPermision();
 			return;
 		}
+		if(!empty($fileConfig["v2"]) && $this->util->isAdmin($this->member) && !$this->isContentV2Open($fileConfig)){
+			$this->view->adminNotice = $this->getContentV2Notice($fileConfig);
+		}
 		
 		$this->view->fileType = $fileType;
 		
@@ -505,17 +508,7 @@ class DataPage extends PTUserPage
 		$filePath = $fileConfig["file_path"];
 		
 		// ファイル名（ダウンロード時の名前）
-		$fileName = basename($filePath);
-		$originalFileName = $fileName;
-		// ファイル名に suffix を付与（拡張子の前に追加）
-		if (isset($node['suffix']) && $node['suffix'] !== '') {
-			$dotPos = strrpos($originalFileName, '.');
-			if ($dotPos !== false) {
-				$fileName = substr($originalFileName, 0, $dotPos) ."_". $node['suffix'] . substr($originalFileName, $dotPos);
-			} else {
-				$fileName = $originalFileName . $node['suffix'];
-			}
-		}
+		$fileName = $this->buildResponseFileName($fileConfig, $filePath);
 		
 		//ログ
 		if($mode == "play"){
@@ -677,6 +670,10 @@ class DataPage extends PTUserPage
 		}
 		
 		$realPathBase = PCPath::systemRoot() . "app/res/content/";
+		$v2Config = $this->loadContentV2Config($file, $key, $mode, $type, $realPathBase);
+		if ($v2Config !== null) {
+			return $v2Config;
+		}
 		
 		//設定ファイルロード
 		$configPath = $realPathBase . "file.json";
@@ -739,6 +736,154 @@ class DataPage extends PTUserPage
 		return $node;
 	}
 
+	protected function loadContentV2Config($file, $key, $mode, $type, $realPathBase)
+	{
+		try {
+			$fileModel = new ContentFileModel();
+			$itemModel = (new ContentItemModel())->setCol([]);
+			$fileModel->where('content_file.code=? and content_file.file_key=?', [$file, $key]);
+			$fileModel->join('content_id', $itemModel, 'content_id');
+			$fileModel->addCol('content_item.title', 'title');
+			$fileModel->addCol('content_item.description', 'description');
+			$fileModel->addCol('content_item.content_type', 'content_type');
+			$fileModel->addCol('content_item.plan', 'plan');
+			$fileModel->addCol('content_item.status', 'status');
+			$fileModel->addCol('content_item.publish_start_at', 'publish_start_at');
+			$fileModel->addCol('content_item.publish_end_at', 'publish_end_at');
+			$fileModel->addCol('content_item.config_json', 'config_json');
+			$fileModel->limit(1);
+			$data = $fileModel->select();
+			$row = ($data && $data->total > 0) ? $data->data[0] : null;
+		} catch (Exception $e) {
+			return null;
+		}
+
+		if (!$row) {
+			return null;
+		}
+		if ($row['file_type'] !== $type || $row['file_key'] !== $key) {
+			return null;
+		}
+
+		$extra = [];
+		if (isset($row['config_json']) && trim((string)$row['config_json']) !== '') {
+			$extra = json_decode($row['config_json'], true);
+			if ($extra === null && json_last_error() !== JSON_ERROR_NONE) {
+				return false;
+			}
+			if (!is_array($extra)) {
+				$extra = [];
+			}
+		}
+
+		$node = $extra;
+		$node['key'] = $row['file_key'];
+		$node['plan'] = $row['plan'];
+		$node['title'] = $row['title'];
+		$node['desc'] = $row['description'];
+		$node['path'] = $row['storage_path'];
+		$node['original_name'] = $row['original_name'] ?? '';
+		$node['display_name'] = $row['display_name'] ?? '';
+		$node['v2'] = true;
+		$node['content_id'] = $row['content_id'];
+		$node['file_id'] = $row['file_id'];
+		$node['status'] = $row['status'];
+		$node['publish_start_at'] = $row['publish_start_at'];
+		$node['publish_end_at'] = $row['publish_end_at'];
+
+		if (isset($row['suffix']) && $row['suffix'] !== '') {
+			$node['suffix'] = $row['suffix'];
+		}
+		if (isset($row['cache_value']) && $row['cache_value'] !== '') {
+			$node['cache'] = $this->parseContentV2CacheValue($row['cache_value']);
+		}
+
+		if ($type === 'vr') {
+			return $node;
+		}
+
+		$storagePath = ltrim(str_replace(['../', '..\\', '\\'], ['', '', '/'], (string)$row['storage_path']), '/');
+		$filePath = rtrim($realPathBase, '/\\') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $storagePath);
+		$baseReal = realpath($realPathBase);
+		$fileReal = realpath($filePath);
+		if ($baseReal === false || $fileReal === false || strpos($fileReal, $baseReal . DIRECTORY_SEPARATOR) !== 0) {
+			return null;
+		}
+		if (!is_file($fileReal)) {
+			return null;
+		}
+
+		$node['file_path'] = $fileReal;
+		return $node;
+	}
+
+	protected function parseContentV2CacheValue($value)
+	{
+		$value = trim((string)$value);
+		if ($value === '') {
+			return false;
+		}
+		if ($value === '1' || strtolower($value) === 'true') {
+			return true;
+		}
+		if (is_numeric($value)) {
+			return (int)$value;
+		}
+		return false;
+	}
+
+	protected function isContentV2Open(array $fileConfig): bool
+	{
+		if (empty($fileConfig['v2'])) {
+			return true;
+		}
+
+		$status = isset($fileConfig['status']) ? (string)$fileConfig['status'] : 'draft';
+		if ($status !== 'published' && $status !== 'scheduled') {
+			return false;
+		}
+
+		$now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+		$start = $this->parseContentV2Date($fileConfig['publish_start_at'] ?? null);
+		$end = $this->parseContentV2Date($fileConfig['publish_end_at'] ?? null);
+
+		if ($start && $now < $start) {
+			return false;
+		}
+		if ($end && $now >= $end) {
+			return false;
+		}
+		return true;
+	}
+
+	protected function parseContentV2Date($value)
+	{
+		$value = trim((string)$value);
+		if ($value === '') {
+			return null;
+		}
+		try {
+			return new DateTime($value, new DateTimeZone('Asia/Tokyo'));
+		} catch (Exception $e) {
+			return null;
+		}
+	}
+
+	protected function getContentV2Notice(array $fileConfig): string
+	{
+		$status = isset($fileConfig['status']) ? (string)$fileConfig['status'] : 'draft';
+		if ($status === 'private') {
+			return 'このv2コンテンツは非公開です。管理者のみ表示できます。';
+		}
+		if ($status === 'draft') {
+			return 'このv2コンテンツは下書きです。管理者のみ表示できます。';
+		}
+		if ($status === 'scheduled') {
+			return 'このv2コンテンツは予約公開です。公開日時までは管理者のみ表示できます。';
+		}
+		return 'このv2コンテンツは現在公開されていません。管理者のみ表示できます。';
+	}
+
 	protected function loadFileConfigByCode($file)
 	{
 		return $this->loadFileConfig($file, $this->extractFileKeyFromConfig($file), 'play');
@@ -762,6 +907,11 @@ class DataPage extends PTUserPage
 		$path = preg_replace('/\/\/+/', '/', $path);
 		$path = $type . "/" . $path;
 
+		$v2Key = $this->extractContentV2FileKey($file);
+		if ($v2Key) {
+			return $v2Key;
+		}
+
 		$configPath = PCPath::systemRoot() . "app/res/content/file.json";
 		if (!file_exists($configPath) || !is_file($configPath)) {
 			return null;
@@ -783,6 +933,20 @@ class DataPage extends PTUserPage
 		return isset($node['key']) ? $node['key'] : null;
 	}
 
+	protected function extractContentV2FileKey($file)
+	{
+		try {
+			$model = new ContentFileModel();
+			$data = $model->where("code=?",[$file])->select();
+			if ($data && $data->total > 0) {
+				return $data->data[0]['file_key'] ?? null;
+			}
+			return null;
+		} catch (Exception $e) {
+			return null;
+		}
+	}
+
 	protected function extractDisplayNameFromCode($fileCode)
 	{
 		$parts = explode(':', (string)$fileCode, 2);
@@ -792,20 +956,47 @@ class DataPage extends PTUserPage
 
 	protected function buildTrackedFileName(array $fileConfig)
 	{
-		$fileNameSource = isset($fileConfig['file_path']) ? basename($fileConfig['file_path']) : basename((string)($fileConfig['path'] ?? ''));
+		$fileNameSource = $this->buildResponseFileName($fileConfig, isset($fileConfig['file_path']) ? $fileConfig['file_path'] : (string)($fileConfig['path'] ?? ''));
 		if ($fileNameSource === '') {
 			$fileNameSource = 'content';
 		}
 
-		if (isset($fileConfig['suffix']) && $fileConfig['suffix'] !== '') {
-			$dotPos = strrpos($fileNameSource, '.');
-			if ($dotPos !== false) {
-				return substr($fileNameSource, 0, $dotPos) . "_" . $fileConfig['suffix'] . substr($fileNameSource, $dotPos);
-			}
-			return $fileNameSource . "_" . $fileConfig['suffix'];
+		return $fileNameSource;
+	}
+
+	protected function buildResponseFileName(array $fileConfig, string $filePath): string
+	{
+		$fileName = '';
+		if (!empty($fileConfig['display_name'])) {
+			$fileName = (string)$fileConfig['display_name'];
+		} else if (!empty($fileConfig['original_name'])) {
+			$fileName = (string)$fileConfig['original_name'];
+		} else {
+			$fileName = basename($filePath);
 		}
 
-		return $fileNameSource;
+		$fileName = trim(str_replace(["\r", "\n", '"', '/', '\\', "\0"], '_', $fileName));
+		if ($fileName === '') {
+			$fileName = 'content';
+		}
+
+		$pathExt = pathinfo($filePath, PATHINFO_EXTENSION);
+		if ($pathExt !== '' && pathinfo($fileName, PATHINFO_EXTENSION) === '') {
+			$fileName .= '.' . $pathExt;
+		}
+
+		if (isset($fileConfig['suffix']) && $fileConfig['suffix'] !== '') {
+			$suffix = trim(str_replace(["\r", "\n", '"', '/', '\\', "\0"], '_', (string)$fileConfig['suffix']));
+			if ($suffix !== '') {
+				$dotPos = strrpos($fileName, '.');
+				if ($dotPos !== false) {
+					return substr($fileName, 0, $dotPos) . "_" . $suffix . substr($fileName, $dotPos);
+				}
+				return $fileName . "_" . $suffix;
+			}
+		}
+
+		return $fileName;
 	}
 	
 	/**
@@ -927,6 +1118,9 @@ class DataPage extends PTUserPage
 		
 		if($this->util->isAdmin($this->member)){
 			return true;
+		}
+		if(!empty($fileConfig["v2"]) && !$this->isContentV2Open($fileConfig)){
+			return false;
 		}
 		
 		$patreonInfo = $this->member["patreon"];

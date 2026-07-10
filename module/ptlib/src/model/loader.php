@@ -10,5 +10,5 @@ require_once 'ActionCountModel.php';
 
 require_once 'MemberModel.php';
 require_once 'MemberPatreonModel.php';
-
-
+require_once 'ContentItemModel.php';
+require_once 'ContentFileModel.php';

@@ -102,10 +102,23 @@ if (!empty($downloadUrl)) {
       border-radius: 6px;
       font-size: 13px;
     }
+    .admin-notice {
+      text-align: left;
+      background: #fff8d6;
+      border: 1px solid #f0d36b;
+      color: #4f3b00;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
   </style>
 </head>
 <body>
 <div class="container">
+  <?php if (!empty($this->view->adminNotice)): ?>
+    <div class="admin-notice"><?php $this->h->p($this->view->adminNotice); ?></div>
+  <?php endif; ?>
 
   <h1>
     <?php echo ($fileType === 'zip') ? 'ZIP ダウンロード' : 'ファイル ダウンロード'; ?>
