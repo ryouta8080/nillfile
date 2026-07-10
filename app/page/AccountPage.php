@@ -212,8 +212,8 @@ class AccountPage extends PTUserPage
 		$startAt = $this->normalizeContentV2Date($_POST['publish_start_at'] ?? '');
 		$endAt = $this->normalizeContentV2Date($_POST['publish_end_at'] ?? '');
 
-		$files = $_FILES['files'] ?? null;
-		if (!$files || !isset($files['name']) || !is_array($files['name'])) {
+		$files = $_FILES['files'] ?? ['name' => [], 'error' => []];
+		if (!isset($files['name']) || !is_array($files['name'])) {
 			throw new RuntimeException('Upload files are required.');
 		}
 
@@ -223,7 +223,7 @@ class AccountPage extends PTUserPage
 				$uploadIndexes[] = $i;
 			}
 		}
-		if (!$uploadIndexes) {
+		if (!$uploadIndexes && $type !== 'vr') {
 			throw new RuntimeException('Upload files are required.');
 		}
 		$uploadDisplayNames = $this->parseUploadDisplayNames($_POST['upload_display_names'] ?? []);
@@ -255,6 +255,9 @@ class AccountPage extends PTUserPage
 					$this->saveContentV2UploadedFile($contentId, $type, $files, $i, $order, $uploadDisplayNames, $uploadFileNames, $movedPaths);
 					$order++;
 				}
+				if ($type === 'vr' && !$uploadIndexes) {
+					$this->saveContentV2VirtualVrFile($contentId, $title);
+				}
 				return true;
 			} catch (Exception $e) {
 				$transactionError = $e->getMessage();
@@ -268,6 +271,44 @@ class AccountPage extends PTUserPage
 				}
 			}
 			throw new RuntimeException($transactionError ?: ($itemModel->getLastErrorMessage() ?: 'Failed to create content.'));
+		}
+	}
+
+	private function saveContentV2VirtualVrFile(int $contentId, string $title): void
+	{
+		$year = date('Y');
+		$month = date('m');
+		$path = 'v2/' . $year . '/' . $month . '/content-' . $contentId;
+		$code = 'vr:' . $path;
+		$dupModel = new ContentFileModel();
+		$dupData = $dupModel->where('code=?', [$code])->select(false);
+		if ($dupData && $dupData->total > 0) {
+			throw new RuntimeException('File code already exists: ' . $code);
+		}
+
+		$displayName = $this->normalizeContentDisplayName($title);
+		if ($displayName === '') {
+			$displayName = 'VR content ' . $contentId;
+		}
+
+		$fileModel = new ContentFileModel();
+		$saved = $fileModel->save([
+			'content_id' => $contentId,
+			'file_type' => 'vr',
+			'code' => $code,
+			'file_key' => $this->generateContentV2Key(),
+			'storage_path' => 'vr/' . $path,
+			'original_name' => $displayName,
+			'display_name' => $displayName,
+			'mime_type' => 'application/json',
+			'file_size' => 0,
+			'suffix' => '',
+			'cache_value' => '',
+			'is_primary' => 1,
+			'sort_order' => 0,
+		]);
+		if (!$saved) {
+			throw new RuntimeException($fileModel->getLastErrorMessage() ?: 'Failed to save VR URL.');
 		}
 	}
 
@@ -576,6 +617,18 @@ class AccountPage extends PTUserPage
 
 	private function renameContentFileIfNeeded(array $fileRow, string $displayName): array
 	{
+		if (($fileRow['file_type'] ?? '') === 'vr') {
+			$newDisplayName = $this->normalizeContentDisplayName($displayName);
+			if ($newDisplayName === '') {
+				$newDisplayName = (string)($fileRow['display_name'] ?: ($fileRow['original_name'] ?: $fileRow['code']));
+			}
+			return [
+				'display_name' => $newDisplayName,
+				'storage_path' => (string)($fileRow['storage_path'] ?? ''),
+				'code' => (string)($fileRow['code'] ?? ''),
+			];
+		}
+
 		$currentStorage = (string)($fileRow['storage_path'] ?? '');
 		$currentReal = $this->resolveContentRealPath($currentStorage);
 		if (!$currentReal || !is_file($currentReal)) {

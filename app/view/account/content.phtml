@@ -64,6 +64,33 @@ if (!function_exists('content_v2_label')) {
 $host = $_SERVER['HTTP_HOST'] ?? 'file.nilwork.net';
 $baseUrl = 'https://' . $host;
 $defaultSuffix = (new DateTime('now', new DateTimeZone('Asia/Tokyo')))->format('Ymd');
+$vrMediaOptions = [];
+$vrAudioOptions = [];
+$vrSeenMedia = [];
+$vrSeenAudio = [];
+foreach ($rows as $row) {
+    $code = trim((string)($row['code'] ?? ''));
+    if ($code === '') continue;
+    $fileType = (string)($row['file_type'] ?? '');
+    $mimeType = (string)($row['mime_type'] ?? '');
+    $name = (string)($row['display_name'] ?: ($row['original_name'] ?? $code));
+    $label = $name . ' / ' . $code;
+    if (($fileType === 'image' || $fileType === 'movie' || strpos($mimeType, 'image/') === 0 || strpos($mimeType, 'video/') === 0) && empty($vrSeenMedia[$code])) {
+        $vrMediaOptions[] = [
+            'code' => $code,
+            'label' => $label,
+            'type' => ($fileType === 'movie' || strpos($mimeType, 'video/') === 0) ? 'video' : 'image',
+        ];
+        $vrSeenMedia[$code] = true;
+    }
+    if (($fileType === 'audio' || $fileType === 'file' || $fileType === 'movie' || strpos($mimeType, 'audio/') === 0 || strpos($mimeType, 'video/') === 0) && empty($vrSeenAudio[$code])) {
+        $vrAudioOptions[] = [
+            'code' => $code,
+            'label' => $label,
+        ];
+        $vrSeenAudio[$code] = true;
+    }
+}
 
 $this->load($this->getViewPath() . "header.phtml");
 ?>
@@ -98,7 +125,7 @@ $this->load($this->getViewPath() . "header.phtml");
         </div>
         <div class="col-md-3">
           <label class="form-label">種類</label>
-          <select class="form-select" name="content_type">
+          <select class="form-select js-content-type" name="content_type">
             <?php foreach (['movie','image','audio','zip','file','bookmarklet','vr'] as $type): ?>
               <option value="<?php echo content_v2_h($type); ?>"><?php echo content_v2_h(content_v2_label($type)); ?></option>
             <?php endforeach; ?>
@@ -131,7 +158,7 @@ $this->load($this->getViewPath() . "header.phtml");
         </div>
         <div class="col-md-3">
           <label class="form-label">ファイル</label>
-          <input class="form-control" id="contentUploadFiles" type="file" name="files[]" multiple required>
+          <input class="form-control" id="contentUploadFiles" type="file" name="files[]" multiple>
         </div>
 
         <div class="col-md-6">
@@ -156,6 +183,20 @@ $this->load($this->getViewPath() . "header.phtml");
         <div class="col-md-8">
           <label class="form-label">詳細設定JSON</label>
           <textarea class="form-control font-monospace" name="config_json" rows="4"></textarea>
+        </div>
+        <div class="col-md-12">
+          <div class="js-vr-config border rounded p-2 bg-light" data-auto-toggle="1">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+              <div class="fw-semibold">VR設定</div>
+              <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-secondary btn-sm js-vr-load" type="button">JSONから読込</button>
+                <button class="btn btn-outline-secondary btn-sm js-vr-add" type="button">プリセット追加</button>
+                <button class="btn btn-outline-primary btn-sm js-vr-apply" type="button">JSONへ反映</button>
+              </div>
+            </div>
+            <div class="js-vr-items"></div>
+            <div class="text-secondary small">VRコンテンツでは、ここで選んだ画像・動画を360度表示の素材として使用します。</div>
+          </div>
         </div>
         <div class="col-md-12">
           <label class="form-label">メモ</label>
@@ -259,6 +300,20 @@ $this->load($this->getViewPath() . "header.phtml");
             <label class="form-label">詳細設定JSON</label>
             <textarea class="form-control font-monospace" name="config_json" rows="3"><?php echo content_v2_h($item['config_json'] ?? ''); ?></textarea>
           </div>
+          <div class="col-md-12">
+            <div class="js-vr-config border rounded p-2 bg-light" data-content-type="<?php echo content_v2_h($item['content_type'] ?? ''); ?>">
+              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                <div class="fw-semibold">VR設定</div>
+                <div class="d-flex flex-wrap gap-2">
+                  <button class="btn btn-outline-secondary btn-sm js-vr-load" type="button">JSONから読込</button>
+                  <button class="btn btn-outline-secondary btn-sm js-vr-add" type="button">プリセット追加</button>
+                  <button class="btn btn-outline-primary btn-sm js-vr-apply" type="button">JSONへ反映</button>
+                </div>
+              </div>
+              <div class="js-vr-items"></div>
+              <div class="text-secondary small">VRコンテンツでは、ここで選んだ画像・動画を360度表示の素材として使用します。</div>
+            </div>
+          </div>
           <div class="col-md-4">
             <label class="form-label">メモ</label>
             <textarea class="form-control" name="memo" rows="3"><?php echo content_v2_h($item['memo'] ?? ''); ?></textarea>
@@ -291,6 +346,7 @@ $this->load($this->getViewPath() . "header.phtml");
                   $playLogUrl = $baseUrl . '/account/useuser?a=play&c=' . rawurlencode($code);
                   $downloadLogUrl = $baseUrl . '/account/useuser?a=download&c=' . rawurlencode($code);
                   $isMovieFile = (($file['file_type'] ?? '') === 'movie') || strpos((string)($file['mime_type'] ?? ''), 'video/') === 0;
+                  $isVrFile = (($file['file_type'] ?? '') === 'vr');
                 ?>
                 <tr>
                   <td>
@@ -320,9 +376,13 @@ $this->load($this->getViewPath() . "header.phtml");
                       <a class="btn btn-outline-secondary btn-sm" href="<?php echo content_v2_h($thumbnailUrl); ?>" target="_blank" rel="noopener">サムネ</a>
                     <?php endif; ?>
                     <a class="btn btn-outline-primary btn-sm" href="<?php echo content_v2_h($playerUrl); ?>" target="_blank" rel="noopener">再生</a>
-                    <a class="btn btn-outline-secondary btn-sm" href="<?php echo content_v2_h($downloadUrl); ?>">DL</a>
+                    <?php if (!$isVrFile): ?>
+                      <a class="btn btn-outline-secondary btn-sm" href="<?php echo content_v2_h($downloadUrl); ?>">DL</a>
+                    <?php endif; ?>
                     <button class="btn btn-outline-dark btn-sm js-copy-url" type="button" data-url="<?php echo content_v2_h($playerUrl); ?>">コピー</button>
-                    <button class="btn btn-outline-danger btn-sm" type="submit" name="operation" value="delete_file" onclick="this.form.elements['delete_file_id'].value='<?php echo $fileId; ?>'; return confirm('このファイルを削除しますか？');">削除</button>
+                    <?php if (!$isVrFile): ?>
+                      <button class="btn btn-outline-danger btn-sm" type="submit" name="operation" value="delete_file" onclick="this.form.elements['delete_file_id'].value='<?php echo $fileId; ?>'; return confirm('このファイルを削除しますか？');">削除</button>
+                    <?php endif; ?>
                   </td>
                 </tr>
               <?php endforeach; ?>
@@ -360,6 +420,288 @@ $this->load($this->getViewPath() . "header.phtml");
       var target = document.getElementById(btn.getAttribute('data-target') || '');
       copy(target ? target.value : '');
     });
+  });
+
+  var vrMediaOptions = <?php echo json_encode($vrMediaOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  var vrAudioOptions = <?php echo json_encode($vrAudioOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+  function ensureVrDatalist(id, options){
+    if (document.getElementById(id)) return;
+    var list = document.createElement('datalist');
+    list.id = id;
+    (options || []).forEach(function(option){
+      var opt = document.createElement('option');
+      opt.value = option.code || '';
+      opt.label = option.label || option.code || '';
+      list.appendChild(opt);
+    });
+    document.body.appendChild(list);
+  }
+  ensureVrDatalist('vrMediaCodeList', vrMediaOptions);
+  ensureVrDatalist('vrAudioCodeList', vrAudioOptions);
+
+  function parseVrJson(textarea){
+    var text = (textarea && textarea.value ? textarea.value : '').trim();
+    if (!text) return {};
+    try {
+      var data = JSON.parse(text);
+      return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+    } catch (e) {
+      alert('詳細設定JSONの形式が正しくありません。');
+      return null;
+    }
+  }
+  function createVrInput(labelText, className, type, value){
+    var wrap = document.createElement('div');
+    wrap.className = 'col-md-3';
+    var label = document.createElement('label');
+    label.className = 'form-label small mb-1';
+    label.textContent = labelText;
+    var input = document.createElement('input');
+    input.className = 'form-control form-control-sm ' + className;
+    input.type = type || 'text';
+    if (value !== undefined && value !== null) input.value = value;
+    wrap.appendChild(label);
+    wrap.appendChild(input);
+    return wrap;
+  }
+  function getVrInput(row, selector){
+    return row.querySelector(selector);
+  }
+  function addVrAudioRow(audioWrap, audio){
+    audio = audio || {};
+    var row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2 js-vr-audio';
+
+    var fileCol = createVrInput('音声コード', 'js-vr-audio-file', 'text', audio.file || audio.audio || audio.src || '');
+    getVrInput(fileCol, 'input').setAttribute('list', 'vrAudioCodeList');
+    row.appendChild(fileCol);
+    row.appendChild(createVrInput('音量', 'js-vr-audio-volume', 'number', audio.volume !== undefined ? audio.volume : ''));
+    getVrInput(row, '.js-vr-audio-volume').step = '0.1';
+    getVrInput(row, '.js-vr-audio-volume').min = '0';
+
+    var loopCol = document.createElement('div');
+    loopCol.className = 'col-md-2';
+    var loopLabel = document.createElement('label');
+    loopLabel.className = 'form-label small mb-1 d-block';
+    loopLabel.textContent = 'ループ';
+    var loopCheckWrap = document.createElement('div');
+    loopCheckWrap.className = 'form-check';
+    var loopInput = document.createElement('input');
+    loopInput.className = 'form-check-input js-vr-audio-loop';
+    loopInput.type = 'checkbox';
+    loopInput.checked = audio.loop !== false;
+    var loopText = document.createElement('label');
+    loopText.className = 'form-check-label small';
+    loopText.textContent = '有効';
+    loopCheckWrap.appendChild(loopInput);
+    loopCheckWrap.appendChild(loopText);
+    loopCol.appendChild(loopLabel);
+    loopCol.appendChild(loopCheckWrap);
+    row.appendChild(loopCol);
+
+    var position = Array.isArray(audio.position) ? audio.position : [];
+    ['X','Y','Z'].forEach(function(axis, index){
+      var col = createVrInput('位置' + axis, 'js-vr-audio-pos-' + index, 'number', position[index] !== undefined ? position[index] : '');
+      getVrInput(col, 'input').step = '0.1';
+      row.appendChild(col);
+    });
+
+    var actionCol = document.createElement('div');
+    actionCol.className = 'col-md-1';
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'btn btn-outline-danger btn-sm';
+    removeBtn.type = 'button';
+    removeBtn.textContent = '削除';
+    removeBtn.addEventListener('click', function(){
+      row.parentNode.removeChild(row);
+    });
+    actionCol.appendChild(removeBtn);
+    row.appendChild(actionCol);
+    audioWrap.appendChild(row);
+  }
+  function addVrPreset(panel, item){
+    item = item || {};
+    var items = panel.querySelector('.js-vr-items');
+    var row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2 bg-white js-vr-item';
+
+    var top = document.createElement('div');
+    top.className = 'row g-2 align-items-end';
+    top.appendChild(createVrInput('ラベル', 'js-vr-label', 'text', item.label || ''));
+    var fileCol = createVrInput('画像/動画コード', 'js-vr-file', 'text', item.file || item.image || item.src || '');
+    getVrInput(fileCol, 'input').setAttribute('list', 'vrMediaCodeList');
+    fileCol.className = 'col-md-4';
+    top.appendChild(fileCol);
+    top.appendChild(createVrInput('向き yaw', 'js-vr-yaw', 'number', item.yaw !== undefined ? item.yaw : (item.yawOffset !== undefined ? item.yawOffset : '')));
+    getVrInput(top, '.js-vr-yaw').step = '0.1';
+
+    var preloadCol = document.createElement('div');
+    preloadCol.className = 'col-md-2';
+    var preloadLabel = document.createElement('label');
+    preloadLabel.className = 'form-label small mb-1 d-block';
+    preloadLabel.textContent = '事前読込';
+    var preloadWrap = document.createElement('div');
+    preloadWrap.className = 'form-check';
+    var preload = document.createElement('input');
+    preload.className = 'form-check-input js-vr-preload';
+    preload.type = 'checkbox';
+    preload.checked = item.preload === true;
+    var preloadText = document.createElement('label');
+    preloadText.className = 'form-check-label small';
+    preloadText.textContent = '有効';
+    preloadWrap.appendChild(preload);
+    preloadWrap.appendChild(preloadText);
+    preloadCol.appendChild(preloadLabel);
+    preloadCol.appendChild(preloadWrap);
+    top.appendChild(preloadCol);
+
+    var removeCol = document.createElement('div');
+    removeCol.className = 'col-md-1';
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'btn btn-outline-danger btn-sm';
+    removeBtn.type = 'button';
+    removeBtn.textContent = '削除';
+    removeBtn.addEventListener('click', function(){
+      row.parentNode.removeChild(row);
+    });
+    removeCol.appendChild(removeBtn);
+    top.appendChild(removeCol);
+
+    var audioHeader = document.createElement('div');
+    audioHeader.className = 'd-flex align-items-center justify-content-between mt-2 mb-1';
+    var audioTitle = document.createElement('div');
+    audioTitle.className = 'small fw-semibold';
+    audioTitle.textContent = '音声';
+    var addAudioBtn = document.createElement('button');
+    addAudioBtn.className = 'btn btn-outline-secondary btn-sm';
+    addAudioBtn.type = 'button';
+    addAudioBtn.textContent = '音声追加';
+    audioHeader.appendChild(audioTitle);
+    audioHeader.appendChild(addAudioBtn);
+
+    var audioWrap = document.createElement('div');
+    audioWrap.className = 'js-vr-audio-items';
+    addAudioBtn.addEventListener('click', function(){
+      addVrAudioRow(audioWrap, {});
+    });
+
+    row.appendChild(top);
+    row.appendChild(audioHeader);
+    row.appendChild(audioWrap);
+    items.appendChild(row);
+
+    if (Array.isArray(item.audio)) {
+      item.audio.forEach(function(audio){
+        addVrAudioRow(audioWrap, audio);
+      });
+    }
+  }
+  function loadVrPanel(panel){
+    var form = panel.closest('form');
+    var textarea = form ? form.querySelector('textarea[name="config_json"]') : null;
+    var config = parseVrJson(textarea);
+    if (config === null) return;
+    var items = panel.querySelector('.js-vr-items');
+    items.innerHTML = '';
+    var images = config.image || [];
+    if (!Array.isArray(images) && typeof images === 'object') {
+      images = Object.keys(images).map(function(key){
+        var value = images[key];
+        if (typeof value === 'string') return { label: key, file: value };
+        if (value && typeof value === 'object') {
+          if (!value.label) value.label = key;
+          return value;
+        }
+        return null;
+      }).filter(function(value){ return !!value; });
+    } else if (typeof images === 'string') {
+      images = [{ file: images }];
+    }
+    images.forEach(function(item){
+      if (typeof item === 'string') item = { file: item };
+      addVrPreset(panel, item);
+    });
+  }
+  function applyVrPanel(panel){
+    var form = panel.closest('form');
+    var textarea = form ? form.querySelector('textarea[name="config_json"]') : null;
+    var config = parseVrJson(textarea);
+    if (config === null) return false;
+    var images = [];
+    panel.querySelectorAll('.js-vr-item').forEach(function(row){
+      var file = (getVrInput(row, '.js-vr-file').value || '').trim();
+      if (!file) return;
+      var item = { file: file };
+      var label = (getVrInput(row, '.js-vr-label').value || '').trim();
+      var yaw = (getVrInput(row, '.js-vr-yaw').value || '').trim();
+      if (label) item.label = label;
+      if (yaw !== '') item.yaw = Number(yaw);
+      if (getVrInput(row, '.js-vr-preload').checked) item.preload = true;
+
+      var audioItems = [];
+      row.querySelectorAll('.js-vr-audio').forEach(function(audioRow){
+        var audioFile = (getVrInput(audioRow, '.js-vr-audio-file').value || '').trim();
+        if (!audioFile) return;
+        var audio = { file: audioFile };
+        var volume = (getVrInput(audioRow, '.js-vr-audio-volume').value || '').trim();
+        if (volume !== '') audio.volume = Number(volume);
+        audio.loop = getVrInput(audioRow, '.js-vr-audio-loop').checked;
+        var position = [];
+        [0,1,2].forEach(function(index){
+          var value = (getVrInput(audioRow, '.js-vr-audio-pos-' + index).value || '').trim();
+          position[index] = value === '' ? 0 : Number(value);
+        });
+        if (position.some(function(value){ return value !== 0; })) audio.position = position;
+        audioItems.push(audio);
+      });
+      if (audioItems.length) item.audio = audioItems;
+      images.push(item);
+    });
+    if (images.length) {
+      config.image = images;
+    } else {
+      delete config.image;
+    }
+    textarea.value = JSON.stringify(config, null, 2);
+    return true;
+  }
+  function updateVrPanelVisibility(panel){
+    var form = panel.closest('form');
+    var typeSelect = form ? form.querySelector('select[name="content_type"]') : null;
+    var type = typeSelect ? typeSelect.value : (panel.getAttribute('data-content-type') || '');
+    var visible = type === 'vr';
+    panel.style.display = visible ? '' : 'none';
+    if (visible && panel.querySelectorAll('.js-vr-item').length === 0) {
+      loadVrPanel(panel);
+      if (panel.querySelectorAll('.js-vr-item').length === 0) addVrPreset(panel, {});
+    }
+  }
+  document.querySelectorAll('.js-vr-config').forEach(function(panel){
+    panel.querySelector('.js-vr-load').addEventListener('click', function(){
+      loadVrPanel(panel);
+    });
+    panel.querySelector('.js-vr-add').addEventListener('click', function(){
+      addVrPreset(panel, {});
+    });
+    panel.querySelector('.js-vr-apply').addEventListener('click', function(){
+      applyVrPanel(panel);
+    });
+    var form = panel.closest('form');
+    var typeSelect = form ? form.querySelector('select[name="content_type"]') : null;
+    if (typeSelect) {
+      typeSelect.addEventListener('change', function(){
+        updateVrPanelVisibility(panel);
+      });
+    }
+    if (form) {
+      form.addEventListener('submit', function(event){
+        if (panel.style.display !== 'none' && panel.querySelectorAll('.js-vr-item').length > 0) {
+          if (!applyVrPanel(panel)) event.preventDefault();
+        }
+      });
+    }
+    loadVrPanel(panel);
+    updateVrPanelVisibility(panel);
   });
 
   var uploadInput = document.getElementById('contentUploadFiles');
@@ -539,6 +881,9 @@ $this->load($this->getViewPath() . "header.phtml");
       var empty = document.createElement('div');
       empty.className = 'text-secondary small';
       empty.textContent = 'ファイルを選択すると、保存ファイル名を個別に編集できます。';
+      if (!uploadInput.required) {
+        empty.textContent = 'VRはファイルなしで作成できます。素材はVR設定で選択してください。';
+      }
       uploadList.appendChild(empty);
       return;
     }
@@ -587,9 +932,21 @@ $this->load($this->getViewPath() . "header.phtml");
       uploadList.appendChild(row);
     });
   }
-  if (uploadInput) {
-    uploadInput.addEventListener('change', renderUploadFiles);
+  function updateUploadFileRequirement(){
+    if (!uploadInput) return;
+    var form = uploadInput.closest('form');
+    var typeSelect = form ? form.querySelector('select[name="content_type"]') : null;
+    uploadInput.required = !typeSelect || typeSelect.value !== 'vr';
     renderUploadFiles();
+  }
+  if (uploadInput) {
+    var uploadForm = uploadInput.closest('form');
+    var uploadTypeSelect = uploadForm ? uploadForm.querySelector('select[name="content_type"]') : null;
+    if (uploadTypeSelect) {
+      uploadTypeSelect.addEventListener('change', updateUploadFileRequirement);
+    }
+    uploadInput.addEventListener('change', renderUploadFiles);
+    updateUploadFileRequirement();
   }
 })();
 </script>
