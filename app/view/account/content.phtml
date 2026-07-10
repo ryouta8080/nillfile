@@ -269,6 +269,7 @@ $this->load($this->getViewPath() . "header.phtml");
             <div class="text-secondary small mt-1">ID: <?php echo (int)$contentId; ?> / 登録日時: <?php echo content_v2_h($item['reg_datetime'] ?? ''); ?></div>
           </div>
           <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary btn-sm js-content-toggle" type="button" aria-expanded="false">詳細</button>
             <?php if ($contentZipUrl): ?>
               <a class="btn btn-outline-secondary btn-sm" href="<?php echo content_v2_h($contentZipUrl); ?>" target="_blank" rel="noopener">
                 <i class="bi bi-file-zip"></i> ZIP
@@ -289,6 +290,7 @@ $this->load($this->getViewPath() . "header.phtml");
           </div>
         </div>
 
+        <div class="js-content-body d-none">
         <div class="row g-3 mb-3">
           <div class="col-md-6">
             <label class="form-label">タイトル</label>
@@ -415,6 +417,7 @@ $this->load($this->getViewPath() . "header.phtml");
           </table>
         </div>
         <input type="hidden" name="delete_file_id" value="">
+        </div>
       </form>
     </section>
   <?php endforeach; ?>
@@ -444,6 +447,17 @@ $this->load($this->getViewPath() . "header.phtml");
     btn.addEventListener('click', function(){
       var target = document.getElementById(btn.getAttribute('data-target') || '');
       copy(target ? target.value : '');
+    });
+  });
+  document.querySelectorAll('.js-content-toggle').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var form = btn.closest('form');
+      var body = form ? form.querySelector('.js-content-body') : null;
+      if (!body) return;
+      var open = body.classList.contains('d-none');
+      body.classList.toggle('d-none', !open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.textContent = open ? '閉じる' : '詳細';
     });
   });
 
