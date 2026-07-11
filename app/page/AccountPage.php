@@ -467,6 +467,7 @@ class AccountPage extends PTUserPage
 			$itemModel = new ContentItemModel();
 			$playCountModel = (new ActionCountModel())->setTableName('pc')->setCol([]);
 			$downloadCountModel = (new ActionCountModel())->setTableName('dc')->setCol([]);
+			$zipDownloadCountModel = (new ActionCountModel())->setTableName('zc')->setCol([]);
 
 			$fileModel->setCol([
 				'file_id',
@@ -503,8 +504,10 @@ class AccountPage extends PTUserPage
 			$fileModel->join('content_id', $itemModel, 'content_id');
 			$fileModel->leftJoinWhere($playCountModel, "pc.action='play' and pc.code=content_file.code");
 			$fileModel->leftJoinWhere($downloadCountModel, "dc.action='download' and dc.code=content_file.code");
+			$fileModel->leftJoinWhere($zipDownloadCountModel, "zc.action='download' and zc.code=CONCAT('content:', content_item.content_id, ':zip')");
 			$fileModel->addCol('COALESCE(pc.cnt, 0)', 'play_count');
 			$fileModel->addCol('COALESCE(dc.cnt, 0)', 'download_count');
+			$fileModel->addCol('COALESCE(zc.cnt, 0)', 'content_zip_download_count');
 			$fileModel->orderBy('content_item.reg_datetime DESC, content_file.sort_order ASC, content_file.file_id ASC');
 
 			$data = $fileModel->select();

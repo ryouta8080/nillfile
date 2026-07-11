@@ -246,6 +246,8 @@ $this->load($this->getViewPath() . "header.phtml");
       $contentZipUrl = ($contentZipKey !== '' && $hasContentZipTarget)
           ? $baseUrl . '/data/contentzip?c=' . (int)$contentId . '&k=' . rawurlencode($contentZipKey)
           : '';
+      $contentZipLogUrl = $baseUrl . '/account/useuser?a=download&c=' . rawurlencode('content:' . (int)$contentId . ':zip');
+      $contentZipDownloadCount = (int)($item['content_zip_download_count'] ?? 0);
       if ($contentZipUrl !== '') {
           $copyLines[] = 'zip';
           $copyLines[] = $contentZipUrl;
@@ -273,6 +275,9 @@ $this->load($this->getViewPath() . "header.phtml");
             <?php if ($contentZipUrl): ?>
               <a class="btn btn-outline-secondary btn-sm" href="<?php echo content_v2_h($contentZipUrl); ?>" target="_blank" rel="noopener">
                 <i class="bi bi-file-zip"></i> ZIP
+              </a>
+              <a class="btn btn-outline-success btn-sm" href="<?php echo content_v2_h($contentZipLogUrl); ?>" target="_blank" rel="noopener">
+                ZIP DL <?php echo number_format($contentZipDownloadCount); ?>
               </a>
               <button class="btn btn-outline-dark btn-sm js-copy-url" type="button" data-url="<?php echo content_v2_h($contentZipUrl); ?>">
                 <i class="bi bi-clipboard"></i> ZIP URLコピー
