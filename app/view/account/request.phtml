@@ -1,0 +1,344 @@
+<?php
+$rows = $this->view->rows ?? [];
+$contents = $this->view->contents ?? [];
+$setting = $this->view->setting ?? [];
+$requestTypes = $this->view->requestTypes ?? [];
+$requestTypeLabels = [];
+foreach ($requestTypes as $requestType) {
+    $requestTypeLabels[(string)$requestType['type_code']] = (string)$requestType['type_label'];
+}
+$filters = $this->view->filters ?? ['state' => 'open', 'favorite' => false, 'q' => ''];
+$pagination = $this->view->pagination ?? ['page' => 1, 'total_pages' => 1, 'total' => count($rows)];
+$csrf = (string)($this->view->csrf ?? '');
+$errors = $this->view->errors ?? [];
+$infos = $this->view->infos ?? [];
+
+if (!function_exists('request_admin_h')) {
+    function request_admin_h($value): string {
+        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    }
+}
+
+if (!function_exists('request_admin_type_label')) {
+    function request_admin_type_label($value): string {
+        $labels = ['image' => '画像', 'movie' => '動画', 'vr' => 'VR', 'other' => 'その他'];
+        return $labels[(string)$value] ?? 'その他';
+    }
+}
+
+$requestAdminPageUrl = function(int $page) use ($filters): string {
+    $params = [
+        'state' => (string)($filters['state'] ?? 'open'),
+        'q' => (string)($filters['q'] ?? ''),
+        'page' => $page,
+    ];
+    if (!empty($filters['favorite'])) $params['favorite'] = 1;
+    if ($params['q'] === '') unset($params['q']);
+    return '/account/request?' . http_build_query($params);
+};
+
+$this->load($this->getViewPath() . 'header.phtml');
+?>
+
+<style>
+.request-admin-text {
+  background: #f5f6f7;
+  border: 1px solid #d9dde1;
+  border-left: 4px solid #8b949e;
+  border-radius: 4px;
+  color: #24292f;
+  padding: 0.9rem 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+</style>
+
+<main class="container py-4">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div>
+      <h1 class="h4 mb-1">リクエスト管理</h1>
+      <div class="text-secondary small">リクエストは投稿者本人と管理者だけに表示されます。</div>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="/account/mypage">
+      <i class="bi bi-arrow-left"></i> 管理メニューへ戻る
+    </a>
+  </div>
+
+  <?php foreach ($errors as $error): ?>
+    <div class="alert alert-danger"><?php echo request_admin_h($error); ?></div>
+  <?php endforeach; ?>
+  <?php foreach ($infos as $info): ?>
+    <div class="alert alert-success"><?php echo request_admin_h($info); ?></div>
+  <?php endforeach; ?>
+
+  <details class="border rounded p-3 mb-4">
+    <summary class="fw-semibold">受付設定</summary>
+    <form class="mt-3" method="post" action="/account/request">
+      <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
+      <input type="hidden" name="operation" value="save_setting">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" id="acceptFlag" type="checkbox" name="accept_flag" value="1"<?php echo !empty($setting['accept_flag']) ? ' checked' : ''; ?>>
+            <label class="form-check-label" for="acceptFlag">リクエストを受け付ける</label>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" id="paidOnlyFlag" type="checkbox" name="paid_only_flag" value="1"<?php echo !empty($setting['paid_only_flag']) ? ' checked' : ''; ?>>
+            <label class="form-check-label" for="paidOnlyFlag">有料プランの支援者だけ受け付ける</label>
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" id="adminBypassFlag" type="checkbox" name="admin_bypass_flag" value="1"<?php echo !empty($setting['admin_bypass_flag']) ? ' checked' : ''; ?>>
+            <label class="form-check-label" for="adminBypassFlag">管理者の投稿制限を免除する</label>
+          </div>
+        </div>
+        <div class="col-12">
+          <label class="form-label">受け付ける種別</label>
+          <div class="d-flex flex-wrap gap-3 border rounded p-3">
+            <?php foreach ($requestTypes as $type): ?>
+              <?php $typeCode = (string)$type['type_code']; ?>
+              <div class="form-check">
+                <input class="form-check-input" id="requestType<?php echo request_admin_h($typeCode); ?>" type="checkbox" name="request_type_enabled[]" value="<?php echo request_admin_h($typeCode); ?>"<?php echo !empty($type['enabled_flag']) ? ' checked' : ''; ?>>
+                <label class="form-check-label" for="requestType<?php echo request_admin_h($typeCode); ?>"><?php echo request_admin_h($type['type_label']); ?></label>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="requestMaxLength">最大文字数</label>
+          <input class="form-control" id="requestMaxLength" type="number" name="max_length" min="1" max="16000" value="<?php echo (int)($setting['max_length'] ?? 2000); ?>">
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="requestMonthlyLimit">1人あたりの月間上限</label>
+          <input class="form-control" id="requestMonthlyLimit" type="number" name="monthly_limit" min="0" max="1000" value="<?php echo (int)($setting['monthly_limit'] ?? 0); ?>">
+          <div class="form-text">0は無制限</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="requestCooldownMinutes">連続投稿間隔（分）</label>
+          <input class="form-control" id="requestCooldownMinutes" type="number" name="cooldown_minutes" min="0" max="525600" value="<?php echo (int)($setting['cooldown_minutes'] ?? 0); ?>">
+          <div class="form-text">0は制限なし、60で1時間</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="requestDescription">説明文・注意事項</label>
+          <textarea class="form-control" id="requestDescription" name="description_text" rows="5" maxlength="16000"><?php echo request_admin_h($setting['description_text'] ?? ''); ?></textarea>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="requestThanks">送信完了メッセージ</label>
+          <textarea class="form-control" id="requestThanks" name="thanks_text" rows="5" maxlength="16000"><?php echo request_admin_h($setting['thanks_text'] ?? ''); ?></textarea>
+        </div>
+        <div class="col-12 d-flex justify-content-end">
+          <button class="btn btn-primary" type="submit"><i class="bi bi-save"></i> 設定を保存</button>
+        </div>
+      </div>
+    </form>
+  </details>
+
+  <form class="row g-2 align-items-end mb-3" method="get" action="/account/request">
+    <div class="col-sm-4 col-md-3">
+      <label class="form-label" for="requestState">状態</label>
+      <select class="form-select" id="requestState" name="state">
+        <?php foreach (['open' => '未完了', 'done' => '完了', 'withdrawn' => '取り下げ', 'hidden' => '非表示', 'all' => 'すべて'] as $value => $label): ?>
+          <option value="<?php echo request_admin_h($value); ?>"<?php echo (($filters['state'] ?? 'open') === $value) ? ' selected' : ''; ?>><?php echo request_admin_h($label); ?></option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+    <div class="col-sm-6 col-md-5">
+      <label class="form-label" for="requestKeyword">検索</label>
+      <input class="form-control" id="requestKeyword" type="search" name="q" value="<?php echo request_admin_h($filters['q'] ?? ''); ?>" placeholder="内容・投稿者名・Patreon ID">
+    </div>
+    <div class="col-sm-4 col-md-2">
+      <div class="form-check mb-2">
+        <input class="form-check-input" id="favoriteOnly" type="checkbox" name="favorite" value="1"<?php echo !empty($filters['favorite']) ? ' checked' : ''; ?>>
+        <label class="form-check-label" for="favoriteOnly">お気に入りのみ</label>
+      </div>
+    </div>
+    <div class="col-sm-4 col-md-2 d-grid">
+      <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 絞り込み</button>
+    </div>
+  </form>
+
+  <?php if (!$rows): ?>
+    <div class="alert alert-light border">該当するリクエストはありません。</div>
+  <?php else: ?>
+    <div class="accordion" id="requestAdminList">
+      <?php foreach ($rows as $index => $row): ?>
+        <?php
+        $requestId = (int)$row['request_id'];
+        $withdrawn = !empty($row['withdrawn_flag']);
+        $done = !empty($row['done_flag']);
+        $hidden = !empty($row['hidden_flag']);
+        $favorite = !empty($row['favorite_flag']);
+        ?>
+        <div class="accordion-item js-request-row" data-request-id="<?php echo $requestId; ?>" data-withdrawn="<?php echo $withdrawn ? '1' : '0'; ?>">
+          <h2 class="accordion-header" id="requestAdminHeading<?php echo $requestId; ?>">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#requestAdminBody<?php echo $requestId; ?>">
+              <span class="text-secondary me-2">#<?php echo $requestId; ?></span>
+              <i class="bi bi-star-fill text-warning me-2 js-favorite-indicator<?php echo $favorite ? '' : ' d-none'; ?>" title="お気に入り"></i>
+              <span class="badge <?php echo $hidden ? 'text-bg-dark' : ($withdrawn ? 'text-bg-secondary' : ($done ? 'text-bg-success' : 'text-bg-primary')); ?> me-2 js-request-status">
+                <?php echo $hidden ? '非表示' : ($withdrawn ? '取り下げ' : ($done ? '完了' : '未完了')); ?>
+              </span>
+              <span class="me-2"><?php echo request_admin_h($row['patron_name'] ?: $row['patreon_id']); ?></span>
+              <span class="text-secondary small text-truncate"><?php echo request_admin_h($row['reg_datetime'] ?? ''); ?></span>
+            </button>
+          </h2>
+          <div id="requestAdminBody<?php echo $requestId; ?>" class="accordion-collapse collapse" data-bs-parent="#requestAdminList">
+            <div class="accordion-body">
+              <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                  <div class="small text-secondary">投稿時の会員情報</div>
+                  <div><?php echo request_admin_h($row['patron_name'] ?? ''); ?></div>
+                  <div class="small text-secondary">Patreon ID: <?php echo request_admin_h($row['patreon_id'] ?? ''); ?></div>
+                  <div class="small text-secondary">プラン: <?php echo !empty($row['is_paid_at_request']) ? '有料' : '無料'; ?></div>
+                  <div class="small text-secondary">状態: <?php echo request_admin_h($row['patron_status_at_request'] ?: '-'); ?></div>
+                  <div class="small text-secondary">Tier ID: <?php echo request_admin_h($row['tier_id_at_request'] ?: '-'); ?></div>
+                </div>
+                <div class="col-md-8">
+                  <div class="d-flex flex-wrap gap-2 mb-2">
+                    <?php $adminTypeCode = (string)($row['request_type'] ?? 'other'); ?>
+                    <span class="badge text-bg-dark"><?php echo request_admin_h($requestTypeLabels[$adminTypeCode] ?? request_admin_type_label($adminTypeCode)); ?></span>
+                    <?php if (!empty($row['category'])): ?><span class="badge text-bg-light border"><?php echo request_admin_h($row['category']); ?></span><?php endif; ?>
+                    <?php if (!empty($row['is_nsfw'])): ?><span class="badge text-bg-danger">成人向け</span><?php endif; ?>
+                  </div>
+                  <div class="small fw-semibold mb-1">リクエスト本文</div>
+                  <div class="request-admin-text"><?php echo request_admin_h($row['request_text'] ?? ''); ?></div>
+                </div>
+              </div>
+
+              <form method="post" action="/account/request">
+                <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
+                <input type="hidden" name="operation" value="update_request">
+                <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
+                <div class="row g-3 align-items-start">
+                  <div class="col-md-3">
+                    <div class="form-check form-switch mb-2">
+                      <input class="form-check-input js-request-flag" id="favorite<?php echo $requestId; ?>" type="checkbox" name="favorite_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="favorite_flag"<?php echo $favorite ? ' checked' : ''; ?>>
+                      <label class="form-check-label" for="favorite<?php echo $requestId; ?>">お気に入り</label>
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                      <input class="form-check-input js-request-flag" id="done<?php echo $requestId; ?>" type="checkbox" name="done_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="done_flag"<?php echo $done ? ' checked' : ''; ?>>
+                      <label class="form-check-label" for="done<?php echo $requestId; ?>">完了</label>
+                    </div>
+                    <div class="form-check form-switch">
+                      <input class="form-check-input js-request-flag" id="hidden<?php echo $requestId; ?>" type="checkbox" name="hidden_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="hidden_flag"<?php echo $hidden ? ' checked' : ''; ?>>
+                      <label class="form-check-label" for="hidden<?php echo $requestId; ?>">非表示</label>
+                    </div>
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label" for="content<?php echo $requestId; ?>">関連コンテンツ</label>
+                    <select class="form-select" id="content<?php echo $requestId; ?>" name="content_id">
+                      <option value="0">紐付けなし</option>
+                      <?php foreach ($contents as $content): ?>
+                        <option value="<?php echo (int)$content['content_id']; ?>"<?php echo ((int)($row['content_id'] ?? 0) === (int)$content['content_id']) ? ' selected' : ''; ?>>
+                          #<?php echo (int)$content['content_id']; ?> <?php echo request_admin_h($content['title'] ?? ''); ?>
+                        </option>
+                      <?php endforeach; ?>
+                    </select>
+                  </div>
+                  <div class="col-md-5">
+                    <label class="form-label" for="memo<?php echo $requestId; ?>">管理メモ（投稿者には非表示）</label>
+                    <textarea class="form-control" id="memo<?php echo $requestId; ?>" name="admin_memo" rows="3" maxlength="16000"><?php echo request_admin_h($row['admin_memo'] ?? ''); ?></textarea>
+                  </div>
+                  <div class="col-12 d-flex justify-content-end">
+                    <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-save"></i> 更新</button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  <?php endif; ?>
+
+  <?php if ((int)$pagination['total_pages'] > 1): ?>
+    <?php
+    $currentPage = (int)$pagination['page'];
+    $totalPages = (int)$pagination['total_pages'];
+    $startPage = max(1, $currentPage - 2);
+    $endPage = min($totalPages, $currentPage + 2);
+    ?>
+    <nav class="mt-3" aria-label="リクエスト一覧のページ">
+      <ul class="pagination pagination-sm justify-content-center mb-0">
+        <li class="page-item<?php echo $currentPage <= 1 ? ' disabled' : ''; ?>">
+          <a class="page-link" href="<?php echo request_admin_h($requestAdminPageUrl(max(1, $currentPage - 1))); ?>" aria-label="前のページ"><i class="bi bi-chevron-left"></i></a>
+        </li>
+        <?php for ($pageNumber = $startPage; $pageNumber <= $endPage; $pageNumber++): ?>
+          <li class="page-item<?php echo $pageNumber === $currentPage ? ' active' : ''; ?>">
+            <a class="page-link" href="<?php echo request_admin_h($requestAdminPageUrl($pageNumber)); ?>"><?php echo $pageNumber; ?></a>
+          </li>
+        <?php endfor; ?>
+        <li class="page-item<?php echo $currentPage >= $totalPages ? ' disabled' : ''; ?>">
+          <a class="page-link" href="<?php echo request_admin_h($requestAdminPageUrl(min($totalPages, $currentPage + 1))); ?>" aria-label="次のページ"><i class="bi bi-chevron-right"></i></a>
+        </li>
+      </ul>
+    </nav>
+  <?php endif; ?>
+</main>
+
+<script>
+(function(){
+  var csrf = <?php echo json_encode($csrf, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
+
+  function updateRow(input){
+    var row = input.closest('.js-request-row');
+    if (!row) return;
+    if (input.dataset.field === 'favorite_flag') {
+      var indicator = row.querySelector('.js-favorite-indicator');
+      if (indicator) indicator.classList.toggle('d-none', !input.checked);
+      return;
+    }
+
+    var status = row.querySelector('.js-request-status');
+    var hiddenInput = row.querySelector('[data-field="hidden_flag"]');
+    var doneInput = row.querySelector('[data-field="done_flag"]');
+    if (!status || !hiddenInput || !doneInput) return;
+    status.classList.remove('text-bg-dark', 'text-bg-secondary', 'text-bg-success', 'text-bg-primary');
+    if (hiddenInput.checked) {
+      status.textContent = '非表示';
+      status.classList.add('text-bg-dark');
+    } else if (row.dataset.withdrawn === '1') {
+      status.textContent = '取り下げ';
+      status.classList.add('text-bg-secondary');
+    } else if (doneInput.checked) {
+      status.textContent = '完了';
+      status.classList.add('text-bg-success');
+    } else {
+      status.textContent = '未完了';
+      status.classList.add('text-bg-primary');
+    }
+  }
+
+  document.querySelectorAll('.js-request-flag').forEach(function(input){
+    input.addEventListener('change', async function(){
+      var nextChecked = input.checked;
+      input.disabled = true;
+      try {
+        var body = new URLSearchParams();
+        body.set('_csrf', csrf);
+        body.set('operation', 'update_request_flag');
+        body.set('request_id', input.dataset.requestId || '0');
+        body.set('field', input.dataset.field || '');
+        body.set('value', nextChecked ? '1' : '0');
+        var response = await fetch('/account/request', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+          },
+          body: body.toString()
+        });
+        var data = await response.json().catch(function(){ return {}; });
+        if (!response.ok || !data.success) throw new Error(data.message || '更新に失敗しました。');
+        updateRow(input);
+      } catch (error) {
+        input.checked = !nextChecked;
+        alert(error.message || '更新に失敗しました。');
+      } finally {
+        input.disabled = false;
+      }
+    });
+  });
+})();
+</script>
+
+<?php $this->load($this->getViewPath() . 'footer.phtml'); ?>

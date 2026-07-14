@@ -208,6 +208,19 @@ $this->load( $this->getViewPath() . "jsonld.phtml" );
 <?php
 $user_name = isset($this->member) && isset($this->member["patreon"]) ? $this->member["patreon"]["name"] : null;
 $is_logged_in = !empty($user_name);
+$show_request_link = $is_logged_in;
+if ($show_request_link) {
+	$requestSettingModel = new RequestSettingModel();
+	$requestSettingResult = $requestSettingModel->where('setting_id=?', [1])->select();
+	if ($requestSettingResult && $requestSettingResult->total > 0) {
+		$requestHeaderSetting = $requestSettingResult->data[0];
+		$adminBypass = !empty($requestHeaderSetting['admin_bypass_flag']) && $this->util->isAdmin($this->member);
+		$patreonStatus = (string)($this->member['patreon']['status'] ?? '');
+		if (!$adminBypass && !empty($requestHeaderSetting['paid_only_flag'])) {
+			$show_request_link = ($patreonStatus === 'active_patron');
+		}
+	}
+}
 
 ?>
 
@@ -221,6 +234,9 @@ $is_logged_in = !empty($user_name);
     <div id="mainNav" class="collapse navbar-collapse">
       <ul class="navbar-nav me-auto">
         <li class="nav-item"><a class="nav-link" href="/">ホーム</a></li>
+        <?php if ($show_request_link): ?>
+          <li class="nav-item"><a class="nav-link" href="/request">リクエスト</a></li>
+        <?php endif; ?>
       </ul>
 
       <ul class="navbar-nav ms-auto align-items-lg-center">
@@ -263,4 +279,3 @@ $is_logged_in = !empty($user_name);
 
 </form>
 </section>
-

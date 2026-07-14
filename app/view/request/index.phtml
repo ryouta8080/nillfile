@@ -1,0 +1,236 @@
+<?php
+$csrf = (string)($this->view->csrf ?? '');
+$setting = $this->view->setting ?? [];
+$rows = $this->view->rows ?? [];
+$requestTypes = $this->view->requestTypes ?? [];
+$requestTypeLabels = $this->view->requestTypeLabels ?? [];
+$pagination = $this->view->pagination ?? ['page' => 1, 'total_pages' => 1, 'total' => count($rows)];
+$errors = $this->view->errors ?? [];
+$formValues = $this->view->formValues ?? [];
+$requestFlash = (string)($this->view->requestFlash ?? '');
+$isPaid = !empty($this->view->isPaid);
+$adminBypass = !empty($this->view->adminBypass);
+$canSubmit = !empty($setting['accept_flag']) && ($adminBypass || empty($setting['paid_only_flag']) || $isPaid) && !empty($requestTypes);
+$maxLength = max(1, (int)($setting['max_length'] ?? 2000));
+$defaultRequestType = (string)($requestTypes[0]['type_code'] ?? '');
+
+if (!function_exists('request_page_h')) {
+    function request_page_h($value): string {
+        return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
+    }
+}
+
+if (!function_exists('request_page_type_label')) {
+    function request_page_type_label($value): string {
+        $labels = ['image' => '画像', 'movie' => '動画', 'vr' => 'VR', 'other' => 'その他'];
+        return $labels[(string)$value] ?? 'その他';
+    }
+}
+
+$this->load($this->getViewPath() . 'header.phtml');
+?>
+
+<main class="container py-4" style="max-width: 960px;">
+  <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+    <div>
+      <h1 class="h4 mb-1">リクエスト</h1>
+    </div>
+  </div>
+
+  <?php foreach ($errors as $error): ?>
+    <div class="alert alert-danger"><?php echo request_page_h($error); ?></div>
+  <?php endforeach; ?>
+
+  <?php if ($requestFlash === 'submitted'): ?>
+    <div class="alert alert-success">
+      <?php echo nl2br(request_page_h($setting['thanks_text'] ?? 'リクエストを受け付けました。')); ?>
+    </div>
+  <?php endif; ?>
+  <?php if ($requestFlash === 'withdrawn'): ?>
+    <div class="alert alert-info">リクエストを取り下げました。</div>
+  <?php endif; ?>
+
+  <?php if (!empty($setting['description_text'])): ?>
+    <section class="border rounded p-3 mb-4">
+      <?php echo nl2br(request_page_h($setting['description_text'])); ?>
+    </section>
+  <?php endif; ?>
+
+  <?php if ($canSubmit): ?>
+    <section class="border rounded p-3 mb-4">
+      <h2 class="h5 mb-3">新しいリクエスト</h2>
+      <form id="requestSubmitForm" method="post" action="/request/submit">
+        <input type="hidden" name="_csrf" value="<?php echo request_page_h($csrf); ?>">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="requestType">希望する形式</label>
+            <select class="form-select" id="requestType" name="request_type">
+              <?php foreach ($requestTypes as $type): ?>
+                <?php $value = (string)$type['type_code']; ?>
+                <option value="<?php echo request_page_h($value); ?>"<?php echo (($formValues['request_type'] ?? $defaultRequestType) === $value) ? ' selected' : ''; ?>><?php echo request_page_h($type['type_label']); ?></option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label" for="requestText">リクエスト内容</label>
+            <textarea class="form-control" id="requestText" name="request_text" rows="7" maxlength="<?php echo $maxLength; ?>" required><?php echo request_page_h($formValues['request_text'] ?? ''); ?></textarea>
+            <div class="form-text text-end"><span id="requestLength">0</span> / <?php echo number_format($maxLength); ?>文字</div>
+          </div>
+          <div class="col-12">
+            <div class="form-check">
+              <input class="form-check-input" id="requestNsfw" type="checkbox" name="is_nsfw" value="1"<?php echo isset($formValues['is_nsfw']) ? ' checked' : ''; ?>>
+              <label class="form-check-label" for="requestNsfw">NSFWを希望</label>
+            </div>
+          </div>
+          <div class="col-12 d-flex justify-content-end">
+            <button class="btn btn-primary" type="submit">
+              <i class="bi bi-send"></i> 送信
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+  <?php elseif (empty($setting['accept_flag'])): ?>
+    <div class="alert alert-secondary mb-4">現在、リクエストの受付を停止しています。</div>
+  <?php else: ?>
+    <?php if (!$adminBypass && !empty($setting['paid_only_flag']) && !$isPaid): ?>
+      <div class="alert alert-secondary mb-4">現在のプランではリクエストを送信できません。</div>
+    <?php else: ?>
+      <div class="alert alert-secondary mb-4">現在、受付可能なリクエスト種別がありません。</div>
+    <?php endif; ?>
+  <?php endif; ?>
+
+  <section>
+    <h2 class="h5 mb-3">送信履歴</h2>
+    <?php if (!$rows): ?>
+      <div class="text-secondary py-3">送信済みのリクエストはありません。</div>
+    <?php else: ?>
+      <div class="accordion" id="requestHistory">
+        <?php foreach ($rows as $index => $row): ?>
+          <?php
+          $requestId = (int)$row['request_id'];
+          ?>
+          <div class="accordion-item">
+            <h3 class="accordion-header" id="requestHeading<?php echo $requestId; ?>">
+              <button class="accordion-button<?php echo $index === 0 ? '' : ' collapsed'; ?>" type="button" data-bs-toggle="collapse" data-bs-target="#requestBody<?php echo $requestId; ?>">
+                <?php $historyTypeCode = (string)($row['request_type'] ?? 'other'); ?>
+                <span class="me-2"><?php echo request_page_h($requestTypeLabels[$historyTypeCode] ?? request_page_type_label($historyTypeCode)); ?></span>
+                <span class="text-secondary small"><?php echo request_page_h($row['reg_datetime'] ?? ''); ?></span>
+              </button>
+            </h3>
+            <div id="requestBody<?php echo $requestId; ?>" class="accordion-collapse collapse<?php echo $index === 0 ? ' show' : ''; ?>" data-bs-parent="#requestHistory">
+              <div class="accordion-body">
+                <div class="mb-3" style="white-space: pre-wrap;"><?php echo request_page_h($row['request_text'] ?? ''); ?></div>
+                <?php if (!empty($row['reply_visible_flag']) && !empty($row['reply_text'])): ?>
+                  <div class="border-start border-3 ps-3 mb-3">
+                    <div class="small fw-semibold mb-1">管理者からの返信</div>
+                    <div style="white-space: pre-wrap;"><?php echo request_page_h($row['reply_text']); ?></div>
+                  </div>
+                <?php endif; ?>
+                <form method="post" action="/request/withdraw" onsubmit="return confirm('このリクエストを取り下げますか？');">
+                  <input type="hidden" name="_csrf" value="<?php echo request_page_h($csrf); ?>">
+                  <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">
+                    <i class="bi bi-x-circle"></i> 取り下げ
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+
+    <?php if ((int)$pagination['total_pages'] > 1): ?>
+      <?php
+      $currentPage = (int)$pagination['page'];
+      $totalPages = (int)$pagination['total_pages'];
+      $startPage = max(1, $currentPage - 2);
+      $endPage = min($totalPages, $currentPage + 2);
+      ?>
+      <nav class="mt-3" aria-label="送信履歴のページ">
+        <ul class="pagination pagination-sm justify-content-center mb-0">
+          <li class="page-item<?php echo $currentPage <= 1 ? ' disabled' : ''; ?>">
+            <a class="page-link" href="/request?page=<?php echo max(1, $currentPage - 1); ?>" aria-label="前のページ"><i class="bi bi-chevron-left"></i></a>
+          </li>
+          <?php for ($pageNumber = $startPage; $pageNumber <= $endPage; $pageNumber++): ?>
+            <li class="page-item<?php echo $pageNumber === $currentPage ? ' active' : ''; ?>">
+              <a class="page-link" href="/request?page=<?php echo $pageNumber; ?>"><?php echo $pageNumber; ?></a>
+            </li>
+          <?php endfor; ?>
+          <li class="page-item<?php echo $currentPage >= $totalPages ? ' disabled' : ''; ?>">
+            <a class="page-link" href="/request?page=<?php echo min($totalPages, $currentPage + 1); ?>" aria-label="次のページ"><i class="bi bi-chevron-right"></i></a>
+          </li>
+        </ul>
+      </nav>
+    <?php endif; ?>
+  </section>
+
+  <div class="modal fade" id="requestConfirmModal" tabindex="-1" aria-labelledby="requestConfirmTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="requestConfirmTitle">送信内容の確認</h2>
+          <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="閉じる"></button>
+        </div>
+        <div class="modal-body">
+          <dl class="row mb-3">
+            <dt class="col-sm-4">希望する形式</dt>
+            <dd class="col-sm-8" id="requestConfirmType"></dd>
+            <dt class="col-sm-4">NSFW</dt>
+            <dd class="col-sm-8" id="requestConfirmNsfw"></dd>
+          </dl>
+          <div class="fw-semibold mb-2">リクエスト内容</div>
+          <div class="border rounded p-3 bg-light" id="requestConfirmText" style="white-space: pre-wrap; overflow-wrap: anywhere;"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">戻る</button>
+          <button class="btn btn-primary" id="requestConfirmSubmit" type="button">
+            <i class="bi bi-send"></i> 送信する
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(function(){
+  var input = document.getElementById('requestText');
+  var count = document.getElementById('requestLength');
+  if (input && count) {
+    function updateLength(){ count.textContent = Array.from(input.value).length; }
+    input.addEventListener('input', updateLength);
+    updateLength();
+  }
+
+  var form = document.getElementById('requestSubmitForm');
+  var modalElement = document.getElementById('requestConfirmModal');
+  var confirmButton = document.getElementById('requestConfirmSubmit');
+  if (!form || !modalElement || !confirmButton) return;
+
+  form.addEventListener('submit', function(event){
+    event.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    var type = document.getElementById('requestType');
+    var nsfw = document.getElementById('requestNsfw');
+    var selectedType = type && type.selectedOptions.length ? type.selectedOptions[0].textContent : '';
+    document.getElementById('requestConfirmType').textContent = selectedType;
+    document.getElementById('requestConfirmNsfw').textContent = nsfw && nsfw.checked ? '希望する' : '希望しない';
+    document.getElementById('requestConfirmText').textContent = input ? input.value : '';
+    bootstrap.Modal.getOrCreateInstance(modalElement).show();
+  });
+
+  confirmButton.addEventListener('click', function(){
+    confirmButton.disabled = true;
+    bootstrap.Modal.getOrCreateInstance(modalElement).hide();
+    form.submit();
+  });
+})();
+</script>
+
+<?php $this->load($this->getViewPath() . 'footer.phtml'); ?>

@@ -129,6 +129,252 @@ class AccountPage extends PTUserPage
 		$this->displayNotFound();
 	}
 
+	public function requestAction()
+	{
+		if(!$this->member){
+			$this->redirect('/login');
+			return;
+		}
+		if(!$this->util->isAdmin($this->member)){
+			$this->displayNotFound();
+			return;
+		}
+		if ($_SERVER['REQUEST_METHOD'] === 'POST' && (string)($_POST['operation'] ?? '') === 'update_request_flag') {
+			$this->updateRequestAdminFlagResponse();
+			return;
+		}
+
+		$errors = [];
+		if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+			if (!$this->checkRequestAdminCsrf((string)($_POST['_csrf'] ?? ''))) {
+				$errors[] = '画面の有効期限が切れました。再読み込みしてから更新してください。';
+			} else {
+				$operation = (string)($_POST['operation'] ?? '');
+				if ($operation === 'update_request') {
+					if ($this->updateRequestAdmin()) {
+						$this->redirect('/account/request?updated=1');
+						return;
+					}
+					$errors[] = 'リクエストの更新に失敗しました。';
+				} elseif ($operation === 'save_setting') {
+					if ($this->saveRequestSettingAdmin()) {
+						$this->redirect('/account/request?setting_saved=1');
+						return;
+					}
+					$errors[] = '受付設定の保存に失敗しました。';
+				} else {
+					$errors[] = '不明な操作です。';
+				}
+			}
+		}
+
+		$state = (string)($_GET['state'] ?? 'open');
+		if (!in_array($state, ['open', 'done', 'withdrawn', 'hidden', 'all'], true)) $state = 'open';
+		$favorite = isset($_GET['favorite']) && (string)$_GET['favorite'] === '1';
+		$keyword = trim((string)($_GET['q'] ?? ''));
+		$page = max(1, (int)($_GET['page'] ?? 1));
+		$perPage = 50;
+
+		$model = new RequestIdeaModel();
+		if ($state === 'open') {
+			$model->where('done_flag=0 and withdrawn_flag=0 and hidden_flag=0', []);
+		} elseif ($state === 'done') {
+			$model->where('done_flag=1 and hidden_flag=0', []);
+		} elseif ($state === 'withdrawn') {
+			$model->where('withdrawn_flag=1 and hidden_flag=0', []);
+		} elseif ($state === 'hidden') {
+			$model->where('hidden_flag=1', []);
+		}
+		if ($favorite) $model->where('favorite_flag=1', []);
+		if ($keyword !== '') {
+			$like = '%' . $keyword . '%';
+			$model->where('(request_text like ? or patron_name like ? or patreon_id like ?)', [$like, $like, $like]);
+		}
+		$total = (int)($model->count() ?: 0);
+		$totalPages = max(1, (int)ceil($total / $perPage));
+		if ($page > $totalPages) $page = $totalPages;
+		$model
+			->orderBy('request_idea.reg_datetime desc')
+			->limit(($page - 1) * $perPage, $perPage);
+		$result = $model->select();
+
+		$contentModel = new ContentItemModel();
+		$contentResult = $contentModel->orderBy('content_item.reg_datetime desc')->select();
+
+		$infos = [];
+		if (isset($_GET['updated'])) $infos[] = 'リクエストを更新しました。';
+		if (isset($_GET['setting_saved'])) $infos[] = '受付設定を保存しました。';
+
+		$this->view->rows = ($result && $result->total > 0) ? $result->data : [];
+		$this->view->contents = ($contentResult && $contentResult->total > 0) ? $contentResult->data : [];
+		$this->view->setting = $this->loadRequestSettingAdmin();
+		$this->view->requestTypes = $this->loadRequestTypesAdmin();
+		$this->view->filters = ['state' => $state, 'favorite' => $favorite, 'q' => $keyword];
+		$this->view->pagination = [
+			'page' => $page,
+			'per_page' => $perPage,
+			'total' => $total,
+			'total_pages' => $totalPages,
+		];
+		$this->view->csrf = $this->requestAdminCsrfToken();
+		$this->view->errors = $errors;
+		$this->view->infos = $infos;
+		$this->view->title = 'リクエスト管理';
+		$this->setTemplatePath('account/request.phtml');
+		$this->display();
+	}
+
+	private function updateRequestAdmin(): bool
+	{
+		$requestId = (int)($_POST['request_id'] ?? 0);
+		if ($requestId <= 0) return false;
+
+		$contentId = (int)($_POST['content_id'] ?? 0);
+		if ($contentId > 0) {
+			$contentModel = new ContentItemModel();
+			$contentResult = $contentModel->where('content_id=?', [$contentId])->select();
+			if (!$contentResult || $contentResult->total === 0) $contentId = 0;
+		}
+
+		$model = new RequestIdeaModel();
+		return (bool)$model->update([
+			'request_id' => $requestId,
+			'favorite_flag' => isset($_POST['favorite_flag']) ? 1 : 0,
+			'done_flag' => isset($_POST['done_flag']) ? 1 : 0,
+			'hidden_flag' => isset($_POST['hidden_flag']) ? 1 : 0,
+			'admin_memo' => mb_substr(trim((string)($_POST['admin_memo'] ?? '')), 0, 16000, 'UTF-8'),
+			'content_id' => $contentId > 0 ? $contentId : null,
+		]);
+	}
+
+	private function updateRequestAdminFlagResponse(): void
+	{
+		if (!$this->checkRequestAdminCsrf((string)($_POST['_csrf'] ?? ''))) {
+			$this->requestAdminJson(['success' => false, 'message' => '画面の有効期限が切れました。'], 400);
+			return;
+		}
+
+		$requestId = (int)($_POST['request_id'] ?? 0);
+		$field = (string)($_POST['field'] ?? '');
+		$value = ((string)($_POST['value'] ?? '0') === '1') ? 1 : 0;
+		if ($requestId <= 0 || !in_array($field, ['favorite_flag', 'done_flag', 'hidden_flag'], true)) {
+			$this->requestAdminJson(['success' => false, 'message' => '更新内容が正しくありません。'], 400);
+			return;
+		}
+
+		$checkModel = new RequestIdeaModel();
+		$checkResult = $checkModel->where('request_id=?', [$requestId])->select();
+		if (!$checkResult || $checkResult->total === 0) {
+			$this->requestAdminJson(['success' => false, 'message' => 'リクエストが見つかりません。'], 404);
+			return;
+		}
+
+		$model = new RequestIdeaModel();
+		$saved = $model->update([
+			'request_id' => $requestId,
+			$field => $value,
+		]);
+		if (!$saved) {
+			$this->requestAdminJson(['success' => false, 'message' => '更新に失敗しました。'], 500);
+			return;
+		}
+
+		$this->requestAdminJson([
+			'success' => true,
+			'request_id' => $requestId,
+			'field' => $field,
+			'value' => $value,
+		]);
+	}
+
+	private function requestAdminJson(array $data, int $status = 200): void
+	{
+		http_response_code($status);
+		header('Content-Type: application/json; charset=UTF-8');
+		echo json_encode($data, JSON_UNESCAPED_UNICODE);
+	}
+
+	private function saveRequestSettingAdmin(): bool
+	{
+		$maxLength = max(1, min(16000, (int)($_POST['max_length'] ?? 2000)));
+		$monthlyLimit = max(0, min(1000, (int)($_POST['monthly_limit'] ?? 0)));
+		$cooldownMinutes = max(0, min(525600, (int)($_POST['cooldown_minutes'] ?? 0)));
+		$requestTypes = $this->loadRequestTypesAdmin();
+		$enabledCodes = $_POST['request_type_enabled'] ?? [];
+		if (!is_array($enabledCodes)) $enabledCodes = [];
+		$enabledCodes = array_values(array_unique(array_map('strval', $enabledCodes)));
+		$knownCodes = array_column($requestTypes, 'type_code');
+		$enabledCodes = array_values(array_intersect($enabledCodes, $knownCodes));
+		if (!$requestTypes || !$enabledCodes) return false;
+
+		$settingModel = new RequestSettingModel();
+		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $requestTypes, $enabledCodes) {
+			$saved = $settingModel->save([
+				'setting_id' => 1,
+				'accept_flag' => isset($_POST['accept_flag']) ? 1 : 0,
+				'description_text' => mb_substr(trim((string)($_POST['description_text'] ?? '')), 0, 16000, 'UTF-8'),
+				'thanks_text' => mb_substr(trim((string)($_POST['thanks_text'] ?? '')), 0, 16000, 'UTF-8'),
+				'max_length' => $maxLength,
+				'monthly_limit' => $monthlyLimit,
+				'cooldown_minutes' => $cooldownMinutes,
+				'paid_only_flag' => isset($_POST['paid_only_flag']) ? 1 : 0,
+				'admin_bypass_flag' => isset($_POST['admin_bypass_flag']) ? 1 : 0,
+			]);
+			if (!$saved) return false;
+
+			foreach ($requestTypes as $type) {
+				$typeModel = new RequestTypeSettingModel();
+				$typeSaved = $typeModel->save([
+					'type_code' => (string)$type['type_code'],
+					'type_label' => (string)$type['type_label'],
+					'enabled_flag' => in_array((string)$type['type_code'], $enabledCodes, true) ? 1 : 0,
+					'sort_order' => (int)$type['sort_order'],
+				]);
+				if (!$typeSaved) return false;
+			}
+			return true;
+		});
+	}
+
+	private function loadRequestSettingAdmin(): array
+	{
+		$setting = [
+			'setting_id' => 1,
+			'accept_flag' => 1,
+			'description_text' => '',
+			'thanks_text' => 'リクエストを受け付けました。',
+			'max_length' => 2000,
+			'monthly_limit' => 0,
+			'cooldown_minutes' => 0,
+			'paid_only_flag' => 0,
+			'admin_bypass_flag' => 1,
+		];
+		$model = new RequestSettingModel();
+		$result = $model->where('setting_id=?', [1])->select();
+		if ($result && $result->total > 0) $setting = array_merge($setting, $result->data[0]);
+		return $setting;
+	}
+
+	private function loadRequestTypesAdmin(): array
+	{
+		$model = new RequestTypeSettingModel();
+		$result = $model->orderBy('request_type_setting.sort_order, request_type_setting.type_code')->select();
+		return ($result && $result->total > 0) ? $result->data : [];
+	}
+
+	private function requestAdminCsrfToken(): string
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		if (empty($_SESSION['request_admin_csrf'])) $_SESSION['request_admin_csrf'] = bin2hex(random_bytes(16));
+		return $_SESSION['request_admin_csrf'];
+	}
+
+	private function checkRequestAdminCsrf(string $token): bool
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		return isset($_SESSION['request_admin_csrf']) && hash_equals($_SESSION['request_admin_csrf'], $token);
+	}
+
 	public function contentAction()
 	{
 		if(!$this->member){

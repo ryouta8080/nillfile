@@ -2,319 +2,280 @@
 
 class RequestPage extends PTUserPage
 {
-	// 既存FWのCSRFヘルパがあれば差し替え可。なければ簡易実装。
-	private function csrfToken(): string {
-		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-		if (empty($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(16));
-		return $_SESSION['csrf'];
+	public function indexAction()
+	{
+		if (!$this->checkLogin()) {
+			return;
+		}
+		$this->renderRequestPage();
 	}
-	private function checkCsrf(string $t): bool {
-		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-		return isset($_SESSION['csrf']) && hash_equals($_SESSION['csrf'], $t);
-	}
-	
-	/** ユーザー向けフォーム */
+
 	public function formAction()
 	{
-	    if (!$this->member) { $this->redirect('/login'); return; }
-
-	    $this->view->csrf = $this->csrfToken();
-	    $this->view->patreon = $this->member['patreon'] ?? [];
-	    $this->setTemplatePath('request/form.phtml');
-	    $this->display();
+		$this->indexAction();
 	}
 
-	/** フォーム送信 */
 	public function submitAction()
 	{
-		if ($_SERVER['REQUEST_METHOD'] !== 'POST') { $this->redirect('/request'); return; }
-		if (!$this->member) { $this->redirect('/login'); return; }
-
-		if (!$this->checkCsrf($_POST['_csrf'] ?? '')) {
-			http_response_code(400); echo "Invalid CSRF token"; return;
+		if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+			$this->redirect('/request');
+			return;
+		}
+		if (!$this->checkLogin()) {
+			return;
 		}
 
-		$reqText = trim((string)($_POST['request_text'] ?? ''));
-		$isNsfw  = isset($_POST['is_nsfw']) ? 1 : 0;
-		$wantVid = isset($_POST['want_video']) ? 1 : 0;
-
-		if ($reqText === '') {
-			$this->view->error = 'リクエスト内容を入力してください。';
-			return $this->formAction();
+		$errors = [];
+		if (!$this->checkRequestCsrf((string)($_POST['_csrf'] ?? ''))) {
+			$errors[] = '画面の有効期限が切れました。再読み込みしてから送信してください。';
 		}
 
-	    // Patreon関連は既存の member 構造を利用
-		$patreon     = $this->member['patreon'] ?? [];
-		$patreonId   = (string)($patreon['id'] ?? '');
-		$patronName  = (string)($patreon['name'] ?? ($this->member['name'] ?? ''));
-		$tierId      = (string)($this->member['current_tier_id'] ?? ($patreon['current_tier_id'] ?? ''));
-		$statusRaw   = $this->member['status'] ?? ($patreon['status'] ?? null);
-		$patronStat  = ($statusRaw === 'active_patron') ? 'paid' : 'free';
+		$setting = $this->loadRequestSetting();
+		$requestTypes = $this->loadRequestTypes(true);
+		$patreon = $this->member['patreon'] ?? [];
+		$status = trim((string)($patreon['status'] ?? ''));
+		$isPaid = $status === 'active_patron';
+		$adminBypass = !empty($setting['admin_bypass_flag']) && $this->util->isAdmin($this->member);
+		$requestText = trim((string)($_POST['request_text'] ?? ''));
+		$maxLength = max(1, min(16000, (int)$setting['max_length']));
 
+		if (empty($setting['accept_flag'])) {
+			$errors[] = '現在、リクエストの受付を停止しています。';
+		}
+		if (!$adminBypass && !empty($setting['paid_only_flag']) && !$isPaid) {
+			$errors[] = '現在のプランではリクエストを送信できません。';
+		}
+		if ($requestText === '') {
+			$errors[] = 'リクエスト内容を入力してください。';
+		} elseif (mb_strlen($requestText, 'UTF-8') > $maxLength) {
+			$errors[] = 'リクエスト内容は' . $maxLength . '文字以内で入力してください。';
+		}
+
+		$memberId = (int)($this->member['member_id'] ?? 0);
+		$monthlyLimit = max(0, (int)$setting['monthly_limit']);
+		$cooldownMinutes = max(0, (int)$setting['cooldown_minutes']);
+		if ($memberId <= 0) {
+			$errors[] = '会員情報を確認できませんでした。';
+		} elseif (!$adminBypass && $monthlyLimit > 0 && $this->countCurrentMonthRequests($memberId) >= $monthlyLimit) {
+			$errors[] = '今月のリクエスト上限（' . $monthlyLimit . '件）に達しています。';
+		}
+		if (!$adminBypass && $memberId > 0 && $cooldownMinutes > 0) {
+			$remainingSeconds = $this->getRequestCooldownRemainingSeconds($memberId, $cooldownMinutes);
+			if ($remainingSeconds > 0) {
+				$errors[] = '連続投稿制限中です。次の投稿まで' . $this->formatRequestCooldown($remainingSeconds) . 'お待ちください。';
+			}
+		}
+
+		$patreonId = trim((string)($patreon['id'] ?? ''));
 		if ($patreonId === '') {
-			$this->view->error = 'Patreon連携が必要です。';
-			return $this->formAction();
+			$errors[] = 'Patreon連携情報を確認できませんでした。';
 		}
 
-		$sql = "INSERT INTO request_ideas
-	            (member_id, patreon_id, patron_name, patron_status, tier_id, request_text, is_nsfw, want_video)
-	            VALUES (:member_id, :patreon_id, :patron_name, :patron_status, :tier_id, :request_text, :is_nsfw, :want_video)";
-		$stmt = $this->db()->prepare($sql);
-		$stmt->execute([
-			':member_id'     => $this->member['member_id'] ?? null,
-			':patreon_id'    => $patreonId,
-			':patron_name'   => $patronName,
-			':patron_status' => $patronStat,
-			':tier_id'       => $tierId ?: null,
-			':request_text'  => $reqText,
-			':is_nsfw'       => $isNsfw,
-			':want_video'    => $wantVid,
+		$allowedTypeCodes = array_column($requestTypes, 'type_code');
+		$requestType = (string)($_POST['request_type'] ?? ($allowedTypeCodes[0] ?? ''));
+		if (!$allowedTypeCodes) {
+			$errors[] = '現在、受付可能なリクエスト種別がありません。';
+		} elseif (!in_array($requestType, $allowedTypeCodes, true)) {
+			$errors[] = '選択されたリクエスト種別は現在受け付けていません。';
+		}
+
+		if ($errors) {
+			$this->renderRequestPage($errors, $_POST);
+			return;
+		}
+
+		$model = new RequestIdeaModel();
+		$saved = $model->save([
+			'member_id' => $memberId,
+			'patreon_id' => mb_substr($patreonId, 0, 255, 'UTF-8'),
+			'patron_name' => mb_substr(trim((string)($patreon['name'] ?? '')), 0, 255, 'UTF-8'),
+			'patron_status_at_request' => mb_substr($status, 0, 64, 'UTF-8'),
+			'tier_id_at_request' => mb_substr(trim((string)($patreon['current_tier_id'] ?? '')), 0, 255, 'UTF-8'),
+			'is_paid_at_request' => $isPaid ? 1 : 0,
+			'request_text' => $requestText,
+			'category' => '',
+			'request_type' => $requestType,
+			'is_nsfw' => isset($_POST['is_nsfw']) ? 1 : 0,
 		]);
-
-		$this->redirect('/request?ok=1');
-	}
-
-	/** 管理一覧 */
-	public function adminListAction()
-	{
-		if (!$this->util->isAdmin($this->member)) { http_response_code(403); echo 'Forbidden'; return; }
-
-		$q = "SELECT * FROM request_ideas ORDER BY created_at DESC";
-		$rows = $this->db()->query($q)->fetchAll(PDO::FETCH_ASSOC);
-
-		$this->view->rows = $rows;
-		$this->view->csrf = $this->csrfToken();
-		$this->setTemplatePath('request/admin_list.phtml');
-		$this->display();
-	}
-
-	/** 管理更新 */
-	public function adminUpdateAction()
-	{
-		if (!$this->util->isAdmin($this->member)) { http_response_code(403); echo 'Forbidden'; return; }
-		if ($_SERVER['REQUEST_METHOD'] !== 'POST') { $this->redirect('/admin/requests'); return; }
-		if (!$this->checkCsrf($_POST['_csrf'] ?? '')) { http_response_code(400); echo 'Invalid CSRF token'; return; }
-
-		$id     = (int)($_POST['id'] ?? 0);
-		$status = (string)($_POST['status'] ?? 'unhandled');
-		$memo   = trim((string)($_POST['memo'] ?? ''));
-
-		$allow = ['unhandled','adopted','done'];
-		if (!in_array($status, $allow, true)) $status = 'unhandled';
-
-		$sql = "UPDATE request_ideas SET status=:status, memo=:memo WHERE id=:id";
-		$stmt = $this->db()->prepare($sql);
-		$stmt->execute([':status' => $status, ':memo' => $memo, ':id' => $id]);
-
-		$this->redirect('/admin/requests');
-	}
-	
-	
-	
-	
-	
-	
-	public function logoutAction()
-	{
-		$this->login->logout();
-		$this->redirect("/login");
-	}
-	
-	public function mypageAction()
-	{
-		if(!$this->member){
-			$this->redirect("/login");
+		if (!$saved) {
+			$this->renderRequestPage(['リクエストの保存に失敗しました。時間をおいて再度お試しください。'], $_POST);
 			return;
 		}
-		
-		$member_id = $this->member["member_id"];
-		
-		if( $this->util->isAdmin($this->member) ){
-			$config = $this->loadFileConfig();
-			if ($config === false) {
-				$this->configLoadErrorAction();
-				return;
-			}
-			$fileList = $this->listFilesRecursive($config);
-			
-			$host = "file.nilwork.net";
-			if(isset($_SERVER["HTTP_HOST"])){
-				$host = $_SERVER["HTTP_HOST"];
-			}
-			
-			foreach ($fileList as $index => $file) {
-				/*
-				echo "Path: {$file['path']}\n";
-				echo "File: {$file['name']}\n";
-				echo "Config:\n";
-				print_r($file['config']);
-				echo "-------------------------\n";
-				*/
-				
-				$filePath = $file['path'];
-				$key = $file['config']['key'];
-				$fileType = strtok($filePath, ':');
-				
-				$videoUrl = "https://".$host."/data/player?f=".$filePath."&k=".$key;
-				$file["video"] = $videoUrl;
-				
-				if ($fileType !== 'vr') {
-					$downloadUrl = "https://".$host."/data/file?f=".$filePath."&k=".$key."&m=download";
-					$file["download"] = $downloadUrl;
-					
-					$smUrl = "https://".$host."/data/sm?f=".$filePath."&k=".$key;
-					$file["sm"] = $smUrl;
-					
-					$gifUrl = "https://".$host."/data/gif?f=".$filePath."&k=".$key."&m=download";
-					$file["gif"] = $gifUrl;
-				} else {
-					$file["download"] = "";
-					$file["sm"] = "";
-					$file["gif"] = "";
-				}
-				
-				
-				$playlogUrl = "https://".$host."/account/useuser?a=play&c=".$filePath;
-				$file["playlog"] = $playlogUrl;
-				
-				$dllogUrl = "https://".$host."/account/useuser?a=download&c=".$filePath;
-				$file["dllog"] = $dllogUrl;
-				
-				$fileList[$index] = $file;
-			}
-			$this->view->fileList = $fileList;
-			
-			$this->view->countData = null;
-			$action = new ActionCountModel();
-			$actionData = $action->select();
-			if($actionData && $actionData->total > 0){
-				$this->view->countData = $actionData->data;
-			}
-			
-			$this->setTemplatePath("account/admin.phtml");
-		}
-		
-		$this->view->title = "マイページ";
-		$this->display();
+
+		$this->setRequestFlash('submitted');
+		$this->redirect('/request');
 	}
-	
-	public function useuserAction()
+
+	public function withdrawAction()
 	{
-		if(!$this->member){
-			$this->redirect("/login");
+		if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+			$this->redirect('/request');
 			return;
 		}
-		
-		$member_id = $this->member["member_id"];
-		
-		if( $this->util->isAdmin($this->member) ){
-			
-			$post = $this->getGet(
-				PCF::useParam()
-				->set("a",null, PCV::vInArray(["play","download"]))
-				->set("c",null, PCV::vString(),PCV::vMaxLength(255))
+		if (!$this->checkLogin()) {
+			return;
+		}
+		if (!$this->checkRequestCsrf((string)($_POST['_csrf'] ?? ''))) {
+			http_response_code(400);
+			echo 'Invalid CSRF token';
+			return;
+		}
+
+		$requestId = (int)($_POST['request_id'] ?? 0);
+		$memberId = (int)($this->member['member_id'] ?? 0);
+		if ($requestId > 0 && $memberId > 0) {
+			$model = new RequestIdeaModel();
+			$model->update(
+				['request_id' => $requestId, 'withdrawn_flag' => 1],
+				'member_id=? and withdrawn_flag=0',
+				[$memberId]
 			);
-			$action = $post["a"];
-			$code = $post["c"];
-			
-			$model = new ActionHistoryModel();
-			$model->where("action=? and code=?",[$action,$code]);
-			$patreonModel = new MemberPatreonModel();
-			$model->join("target_id",$patreonModel,"id");
-			$model->addCol("count(*)","cnt");
-			$model->addCol("max(action_history.reg_datetime)","last");
-			
-			$model->groupBy(["target_id"]);
-			$data = $model->select();
-			$this->view->list = [];
-			if($data && $data->total > 0){
-				$this->view->list = $data->data;
-			}
-			
-			$this->view->title = "リスト";
-			//$this->setTemplatePath("account/admin.phtml");
-			$this->display();
-			return;
 		}
-		
-		$this->displayNotFound();
-	}
-	
-	public function notfoundAction()
-	{ 
-		$this->displayNotFound();
+		$this->setRequestFlash('withdrawn');
+		$this->redirect('/request');
 	}
 
-	protected function configLoadErrorAction()
+	private function renderRequestPage(array $errors = [], array $formValues = []): void
 	{
-		header('Content-Type: text/plain; charset=UTF-8');
-		echo "file.json の読み込みに失敗しました。JSON構文を確認してください。";
+		$setting = $this->loadRequestSetting();
+		$allRequestTypes = $this->loadRequestTypes();
+		$requestTypes = [];
+		$requestTypeLabels = [];
+		foreach ($allRequestTypes as $type) {
+			$requestTypeLabels[(string)$type['type_code']] = (string)$type['type_label'];
+			if (!empty($type['enabled_flag'])) $requestTypes[] = $type;
+		}
+		$memberId = (int)($this->member['member_id'] ?? 0);
+		$page = max(1, (int)($_GET['page'] ?? 1));
+		$perPage = 20;
+		$model = new RequestIdeaModel();
+		$model->where('member_id=? and withdrawn_flag=0', [$memberId]);
+		$total = (int)($model->count() ?: 0);
+		$totalPages = max(1, (int)ceil($total / $perPage));
+		if ($page > $totalPages) $page = $totalPages;
+		$model
+			->orderBy('request_idea.reg_datetime desc')
+			->limit(($page - 1) * $perPage, $perPage);
+		$result = $model->select();
+
+		$patreon = $this->member['patreon'] ?? [];
+		$adminBypass = !empty($setting['admin_bypass_flag']) && $this->util->isAdmin($this->member);
+		$flash = $this->consumeRequestFlash();
+		$this->view->csrf = $this->requestCsrfToken();
+		$this->view->setting = $setting;
+		$this->view->requestTypes = $requestTypes;
+		$this->view->requestTypeLabels = $requestTypeLabels;
+		$this->view->rows = ($result && $result->total > 0) ? $result->data : [];
+		$this->view->pagination = [
+			'page' => $page,
+			'per_page' => $perPage,
+			'total' => $total,
+			'total_pages' => $totalPages,
+		];
+		$this->view->isPaid = (($patreon['status'] ?? '') === 'active_patron');
+		$this->view->adminBypass = $adminBypass;
+		$this->view->errors = $errors;
+		$this->view->formValues = $formValues;
+		$this->view->requestFlash = $flash;
+		$this->view->title = 'リクエスト';
+		$this->setTemplatePath('request/index.phtml');
+		$this->display();
 	}
 
-	public function loadFileConfig(){
-		
-		$realPathBase = PCPath::systemRoot() . "app/res/content/";
-		
-		//設定ファイルロード
-		$configPath = $realPathBase . "file.json";
-		
-		// 設定ファイル存在チェック
-		if (!file_exists($configPath) || !is_file($configPath)) {
-			return false;
+	private function loadRequestSetting(): array
+	{
+		$setting = [
+			'setting_id' => 1,
+			'accept_flag' => 1,
+			'description_text' => '',
+			'thanks_text' => 'リクエストを受け付けました。',
+			'max_length' => 2000,
+			'monthly_limit' => 0,
+			'cooldown_minutes' => 0,
+			'paid_only_flag' => 0,
+			'admin_bypass_flag' => 1,
+		];
+		$model = new RequestSettingModel();
+		$result = $model->where('setting_id=?', [1])->select();
+		if ($result && $result->total > 0) {
+			$setting = array_merge($setting, $result->data[0]);
 		}
-
-		// 設定ファイルを読み込み
-		$configContent = file_get_contents($configPath);
-		$config = json_decode($configContent, true);
-
-		// JSONエラー判定
-		if ($config === null && json_last_error() !== JSON_ERROR_NONE) {
-			return false;
-		}
-
-		return $config;
+		return $setting;
 	}
 
-	/**
-	 * JSONを再帰的に探索してファイル情報を列挙
-	 */
-	function listFilesRecursive(array $node, string $basePath = '', bool $isRoot = true): array {
-		$files = [];
-
-		foreach ($node as $name => $value) {
-
-			if ($isRoot) {
-				// 最上位（例: movie）
-				$currentPath = $name;
-			} else {
-				// basePath の末尾が ":" の場合は "/" を付けずに結合
-				if (substr($basePath, -1) === ':') {
-					$currentPath = $basePath . $name;
-				} else {
-					$currentPath = $basePath . '/' . $name;
-				}
-			}
-
-			if (is_array($value)) {
-				// ファイル情報かフォルダか判定
-				$isFile = isset($value['plan']) || isset($value['key']) || isset($value['suffix']);
-
-				if ($isFile) {
-					// path にファイル名を含めて格納
-					$files[] = [
-						'path' => $currentPath, // ファイル名まで含む完全パス
-						'name' => $name,
-						'config' => $value
-					];
-				} else {
-					// フォルダの場合は再帰処理
-					$newBase = $isRoot ? $name . ':' : $currentPath;
-					$files = array_merge($files, $this->listFilesRecursive($value, $newBase, false));
-				}
-			}
-		}
-
-		return $files;
+	private function loadRequestTypes(bool $enabledOnly = false): array
+	{
+		$model = new RequestTypeSettingModel();
+		if ($enabledOnly) $model->where('enabled_flag=1', []);
+		$result = $model->orderBy('request_type_setting.sort_order, request_type_setting.type_code')->select();
+		return ($result && $result->total > 0) ? $result->data : [];
 	}
 
+	private function countCurrentMonthRequests(int $memberId): int
+	{
+		$now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+		$start = $now->format('Y-m-01 00:00:00');
+		$model = new RequestIdeaModel();
+		$count = $model->where('member_id=? and reg_datetime>=?', [$memberId, $start])->count();
+		return $count === false ? 0 : (int)$count;
+	}
+
+	private function getRequestCooldownRemainingSeconds(int $memberId, int $cooldownMinutes): int
+	{
+		$model = new RequestIdeaModel();
+		$result = $model
+			->where('member_id=?', [$memberId])
+			->orderBy('request_idea.reg_datetime desc')
+			->limit(1)
+			->select();
+		if (!$result || $result->total === 0) return 0;
+
+		$lastValue = trim((string)($result->data[0]['reg_datetime'] ?? ''));
+		if ($lastValue === '') return 0;
+		try {
+			$timezone = new DateTimeZone('Asia/Tokyo');
+			$lastAt = new DateTime($lastValue, $timezone);
+			$availableAt = $lastAt->getTimestamp() + ($cooldownMinutes * 60);
+			return max(0, $availableAt - time());
+		} catch (Exception $e) {
+			return 0;
+		}
+	}
+
+	private function formatRequestCooldown(int $remainingSeconds): string
+	{
+		$totalMinutes = max(1, (int)ceil($remainingSeconds / 60));
+		$hours = intdiv($totalMinutes, 60);
+		$minutes = $totalMinutes % 60;
+		if ($hours <= 0) return $minutes . '分';
+		if ($minutes === 0) return $hours . '時間';
+		return $hours . '時間' . $minutes . '分';
+	}
+
+	private function requestCsrfToken(): string
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		if (empty($_SESSION['request_csrf'])) $_SESSION['request_csrf'] = bin2hex(random_bytes(16));
+		return $_SESSION['request_csrf'];
+	}
+
+	private function setRequestFlash(string $type): void
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		$_SESSION['request_flash'] = $type;
+	}
+
+	private function consumeRequestFlash(): string
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		$type = (string)($_SESSION['request_flash'] ?? '');
+		unset($_SESSION['request_flash']);
+		return $type;
+	}
+
+	private function checkRequestCsrf(string $token): bool
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		return isset($_SESSION['request_csrf']) && hash_equals($_SESSION['request_csrf'], $token);
+	}
 }
