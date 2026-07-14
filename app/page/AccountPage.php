@@ -197,6 +197,26 @@ class AccountPage extends PTUserPage
 			->orderBy('request_idea.reg_datetime desc')
 			->limit(($page - 1) * $perPage, $perPage);
 		$result = $model->select();
+		$rows = ($result && $result->total > 0) ? $result->data : [];
+
+		$newRequestIds = [];
+		foreach ($rows as $row) {
+			if (empty($row['admin_viewed_datetime'])) {
+				$newRequestIds[] = (int)$row['request_id'];
+			}
+		}
+		if ($newRequestIds) {
+			$placeholders = implode(',', array_fill(0, count($newRequestIds), '?'));
+			$viewedAt = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+			$viewedModel = new RequestIdeaModel();
+			$viewedModel->update(
+				['admin_viewed_datetime' => $viewedAt->format('Y-m-d H:i:s')],
+				'admin_viewed_datetime is null and request_id in (' . $placeholders . ')',
+				$newRequestIds,
+				null,
+				true
+			);
+		}
 
 		$contentModel = new ContentItemModel();
 		$contentResult = $contentModel->orderBy('content_item.reg_datetime desc')->select();
@@ -205,7 +225,7 @@ class AccountPage extends PTUserPage
 		if (isset($_GET['updated'])) $infos[] = 'リクエストを更新しました。';
 		if (isset($_GET['setting_saved'])) $infos[] = '受付設定を保存しました。';
 
-		$this->view->rows = ($result && $result->total > 0) ? $result->data : [];
+		$this->view->rows = $rows;
 		$this->view->contents = ($contentResult && $contentResult->total > 0) ? $contentResult->data : [];
 		$this->view->setting = $this->loadRequestSettingAdmin();
 		$this->view->requestTypes = $this->loadRequestTypesAdmin();

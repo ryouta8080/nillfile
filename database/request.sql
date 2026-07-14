@@ -14,6 +14,7 @@ CREATE TABLE request_idea (
   done_flag TINYINT NOT NULL DEFAULT 0,
   withdrawn_flag TINYINT NOT NULL DEFAULT 0,
   hidden_flag TINYINT NOT NULL DEFAULT 0,
+  admin_viewed_datetime DATETIME NULL,
   admin_memo TEXT NULL,
   content_id BIGINT UNSIGNED NULL,
   reply_text TEXT NULL,

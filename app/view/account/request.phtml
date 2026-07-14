@@ -47,9 +47,50 @@ $this->load($this->getViewPath() . 'header.phtml');
   border-left: 4px solid #8b949e;
   border-radius: 4px;
   color: #24292f;
-  padding: 0.9rem 1rem;
+  padding: 0.65rem 0.75rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.request-admin-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.request-admin-item {
+  background: #fff;
+  border: 1px solid #d9dde1;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.request-admin-item-header {
+  align-items: center;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+}
+.request-admin-item-body {
+  padding: 0.65rem 0.75rem 0.75rem;
+}
+.request-admin-meta {
+  color: #6c757d;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+  gap: 0.25rem 1rem;
+}
+.request-admin-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+}
+.request-admin-flags .form-check {
+  margin: 0;
+}
+.request-admin-controls .form-label {
+  font-size: 0.8125rem;
+  margin-bottom: 0.25rem;
 }
 </style>
 
@@ -159,61 +200,53 @@ $this->load($this->getViewPath() . 'header.phtml');
   <?php if (!$rows): ?>
     <div class="alert alert-light border">該当するリクエストはありません。</div>
   <?php else: ?>
-    <div class="accordion" id="requestAdminList">
-      <?php foreach ($rows as $index => $row): ?>
+    <div class="request-admin-list" id="requestAdminList">
+      <?php foreach ($rows as $row): ?>
         <?php
         $requestId = (int)$row['request_id'];
         $withdrawn = !empty($row['withdrawn_flag']);
         $done = !empty($row['done_flag']);
         $hidden = !empty($row['hidden_flag']);
         $favorite = !empty($row['favorite_flag']);
+        $isNew = empty($row['admin_viewed_datetime']);
         ?>
-        <div class="accordion-item js-request-row" data-request-id="<?php echo $requestId; ?>" data-withdrawn="<?php echo $withdrawn ? '1' : '0'; ?>">
-          <h2 class="accordion-header" id="requestAdminHeading<?php echo $requestId; ?>">
-            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#requestAdminBody<?php echo $requestId; ?>">
-              <span class="text-secondary me-2">#<?php echo $requestId; ?></span>
-              <i class="bi bi-star-fill text-warning me-2 js-favorite-indicator<?php echo $favorite ? '' : ' d-none'; ?>" title="お気に入り"></i>
-              <span class="badge <?php echo $hidden ? 'text-bg-dark' : ($withdrawn ? 'text-bg-secondary' : ($done ? 'text-bg-success' : 'text-bg-primary')); ?> me-2 js-request-status">
-                <?php echo $hidden ? '非表示' : ($withdrawn ? '取り下げ' : ($done ? '完了' : '未完了')); ?>
-              </span>
-              <span class="me-2"><?php echo request_admin_h($row['patron_name'] ?: $row['patreon_id']); ?></span>
-              <span class="text-secondary small text-truncate"><?php echo request_admin_h($row['reg_datetime'] ?? ''); ?></span>
-            </button>
-          </h2>
-          <div id="requestAdminBody<?php echo $requestId; ?>" class="accordion-collapse collapse" data-bs-parent="#requestAdminList">
-            <div class="accordion-body">
-              <div class="row g-3 mb-3">
-                <div class="col-md-4">
-                  <div class="small text-secondary">投稿時の会員情報</div>
-                  <div><?php echo request_admin_h($row['patron_name'] ?? ''); ?></div>
-                  <div class="small text-secondary">Patreon ID: <?php echo request_admin_h($row['patreon_id'] ?? ''); ?></div>
-                  <div class="small text-secondary">プラン: <?php echo !empty($row['is_paid_at_request']) ? '有料' : '無料'; ?></div>
-                  <div class="small text-secondary">状態: <?php echo request_admin_h($row['patron_status_at_request'] ?: '-'); ?></div>
-                  <div class="small text-secondary">Tier ID: <?php echo request_admin_h($row['tier_id_at_request'] ?: '-'); ?></div>
-                </div>
-                <div class="col-md-8">
-                  <div class="d-flex flex-wrap gap-2 mb-2">
-                    <?php $adminTypeCode = (string)($row['request_type'] ?? 'other'); ?>
-                    <span class="badge text-bg-dark"><?php echo request_admin_h($requestTypeLabels[$adminTypeCode] ?? request_admin_type_label($adminTypeCode)); ?></span>
-                    <?php if (!empty($row['category'])): ?><span class="badge text-bg-light border"><?php echo request_admin_h($row['category']); ?></span><?php endif; ?>
-                    <?php if (!empty($row['is_nsfw'])): ?><span class="badge text-bg-danger">成人向け</span><?php endif; ?>
-                  </div>
-                  <div class="small fw-semibold mb-1">リクエスト本文</div>
-                  <div class="request-admin-text"><?php echo request_admin_h($row['request_text'] ?? ''); ?></div>
-                </div>
-              </div>
+        <?php $adminTypeCode = (string)($row['request_type'] ?? 'other'); ?>
+        <article class="request-admin-item js-request-row" data-request-id="<?php echo $requestId; ?>" data-withdrawn="<?php echo $withdrawn ? '1' : '0'; ?>">
+          <header class="request-admin-item-header">
+            <span class="text-secondary small">#<?php echo $requestId; ?></span>
+            <?php if ($isNew): ?><span class="badge text-bg-danger">NEW</span><?php endif; ?>
+            <i class="bi bi-star-fill text-warning js-favorite-indicator<?php echo $favorite ? '' : ' d-none'; ?>" title="お気に入り"></i>
+            <span class="badge <?php echo $hidden ? 'text-bg-dark' : ($withdrawn ? 'text-bg-secondary' : ($done ? 'text-bg-success' : 'text-bg-primary')); ?> js-request-status">
+              <?php echo $hidden ? '非表示' : ($withdrawn ? '取り下げ' : ($done ? '完了' : '未完了')); ?>
+            </span>
+            <strong><?php echo request_admin_h($row['patron_name'] ?: $row['patreon_id']); ?></strong>
+            <span class="badge text-bg-dark"><?php echo request_admin_h($requestTypeLabels[$adminTypeCode] ?? request_admin_type_label($adminTypeCode)); ?></span>
+            <?php if (!empty($row['category'])): ?><span class="badge text-bg-light border"><?php echo request_admin_h($row['category']); ?></span><?php endif; ?>
+            <?php if (!empty($row['is_nsfw'])): ?><span class="badge text-bg-danger">成人向け</span><?php endif; ?>
+            <time class="text-secondary small ms-lg-auto" datetime="<?php echo request_admin_h($row['reg_datetime'] ?? ''); ?>"><?php echo request_admin_h($row['reg_datetime'] ?? ''); ?></time>
+          </header>
 
-              <form method="post" action="/account/request">
-                <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
-                <input type="hidden" name="operation" value="update_request">
-                <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
-                <div class="row g-3 align-items-start">
-                  <div class="col-md-3">
-                    <div class="form-check form-switch mb-2">
+          <div class="request-admin-item-body">
+            <div class="request-admin-meta mb-2">
+              <span>Patreon ID: <?php echo request_admin_h($row['patreon_id'] ?? ''); ?></span>
+              <span>投稿時プラン: <?php echo !empty($row['is_paid_at_request']) ? '有料' : '無料'; ?></span>
+              <span>状態: <?php echo request_admin_h($row['patron_status_at_request'] ?: '-'); ?></span>
+              <span>Tier ID: <?php echo request_admin_h($row['tier_id_at_request'] ?: '-'); ?></span>
+            </div>
+            <div class="request-admin-text"><?php echo request_admin_h($row['request_text'] ?? ''); ?></div>
+
+            <form class="request-admin-controls mt-2" method="post" action="/account/request">
+              <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
+              <input type="hidden" name="operation" value="update_request">
+              <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
+              <div class="row g-2 align-items-end">
+                <div class="col-xl-3">
+                  <div class="request-admin-flags py-1">
+                    <div class="form-check form-switch">
                       <input class="form-check-input js-request-flag" id="favorite<?php echo $requestId; ?>" type="checkbox" name="favorite_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="favorite_flag"<?php echo $favorite ? ' checked' : ''; ?>>
                       <label class="form-check-label" for="favorite<?php echo $requestId; ?>">お気に入り</label>
                     </div>
-                    <div class="form-check form-switch mb-2">
+                    <div class="form-check form-switch">
                       <input class="form-check-input js-request-flag" id="done<?php echo $requestId; ?>" type="checkbox" name="done_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="done_flag"<?php echo $done ? ' checked' : ''; ?>>
                       <label class="form-check-label" for="done<?php echo $requestId; ?>">完了</label>
                     </div>
@@ -222,29 +255,29 @@ $this->load($this->getViewPath() . 'header.phtml');
                       <label class="form-check-label" for="hidden<?php echo $requestId; ?>">非表示</label>
                     </div>
                   </div>
-                  <div class="col-md-4">
-                    <label class="form-label" for="content<?php echo $requestId; ?>">関連コンテンツ</label>
-                    <select class="form-select" id="content<?php echo $requestId; ?>" name="content_id">
-                      <option value="0">紐付けなし</option>
-                      <?php foreach ($contents as $content): ?>
-                        <option value="<?php echo (int)$content['content_id']; ?>"<?php echo ((int)($row['content_id'] ?? 0) === (int)$content['content_id']) ? ' selected' : ''; ?>>
-                          #<?php echo (int)$content['content_id']; ?> <?php echo request_admin_h($content['title'] ?? ''); ?>
-                        </option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-                  <div class="col-md-5">
-                    <label class="form-label" for="memo<?php echo $requestId; ?>">管理メモ（投稿者には非表示）</label>
-                    <textarea class="form-control" id="memo<?php echo $requestId; ?>" name="admin_memo" rows="3" maxlength="16000"><?php echo request_admin_h($row['admin_memo'] ?? ''); ?></textarea>
-                  </div>
-                  <div class="col-12 d-flex justify-content-end">
-                    <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-save"></i> 更新</button>
-                  </div>
                 </div>
-              </form>
-            </div>
+                <div class="col-md-4 col-xl-3">
+                  <label class="form-label" for="content<?php echo $requestId; ?>">関連コンテンツ</label>
+                  <select class="form-select form-select-sm" id="content<?php echo $requestId; ?>" name="content_id">
+                    <option value="0">紐付けなし</option>
+                    <?php foreach ($contents as $content): ?>
+                      <option value="<?php echo (int)$content['content_id']; ?>"<?php echo ((int)($row['content_id'] ?? 0) === (int)$content['content_id']) ? ' selected' : ''; ?>>
+                        #<?php echo (int)$content['content_id']; ?> <?php echo request_admin_h($content['title'] ?? ''); ?>
+                      </option>
+                    <?php endforeach; ?>
+                  </select>
+                </div>
+                <div class="col-md-6 col-xl-5">
+                  <label class="form-label" for="memo<?php echo $requestId; ?>">管理メモ（投稿者には非表示）</label>
+                  <textarea class="form-control form-control-sm" id="memo<?php echo $requestId; ?>" name="admin_memo" rows="1" maxlength="16000"><?php echo request_admin_h($row['admin_memo'] ?? ''); ?></textarea>
+                </div>
+                <div class="col-md-2 col-xl-1 d-grid">
+                  <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-save"></i> 更新</button>
+                </div>
+              </div>
+            </form>
           </div>
-        </div>
+        </article>
       <?php endforeach; ?>
     </div>
   <?php endif; ?>

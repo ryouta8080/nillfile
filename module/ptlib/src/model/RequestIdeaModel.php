@@ -20,6 +20,7 @@ class RequestIdeaModel extends PTBaseModel
 			'done_flag' => 'done_flag',
 			'withdrawn_flag' => 'withdrawn_flag',
 			'hidden_flag' => 'hidden_flag',
+			'admin_viewed_datetime' => 'admin_viewed_datetime',
 			'admin_memo' => 'admin_memo',
 			'content_id' => 'content_id',
 			'reply_text' => 'reply_text',
