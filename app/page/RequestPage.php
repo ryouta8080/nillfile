@@ -4,7 +4,7 @@ class RequestPage extends PTUserPage
 {
 	public function indexAction()
 	{
-		if (!$this->checkLogin()) {
+		if (!$this->checkRequestLogin()) {
 			return;
 		}
 		$this->renderRequestPage();
@@ -21,7 +21,7 @@ class RequestPage extends PTUserPage
 			$this->redirect('/request');
 			return;
 		}
-		if (!$this->checkLogin()) {
+		if (!$this->checkRequestLogin()) {
 			return;
 		}
 
@@ -112,7 +112,7 @@ class RequestPage extends PTUserPage
 			$this->redirect('/request');
 			return;
 		}
-		if (!$this->checkLogin()) {
+		if (!$this->checkRequestLogin()) {
 			return;
 		}
 		if (!$this->checkRequestCsrf((string)($_POST['_csrf'] ?? ''))) {
@@ -133,6 +133,21 @@ class RequestPage extends PTUserPage
 		}
 		$this->setRequestFlash('withdrawn');
 		$this->redirect('/request');
+	}
+
+	private function checkRequestLogin(): bool
+	{
+		if ($this->member) return true;
+
+		$forwardedProto = strtolower(trim(explode(',', (string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''))[0]));
+		$isHttps = $forwardedProto === 'https'
+			|| (!empty($_SERVER['HTTPS']) && strtolower((string)$_SERVER['HTTPS']) !== 'off');
+		$scheme = $isHttps ? 'https' : 'http';
+		$host = (string)($_SERVER['HTTP_HOST'] ?? '');
+		$returnUrl = $host === '' ? '/request' : $scheme . '://' . $host . '/request';
+
+		$this->redirect('/login/patreon', ['url' => $returnUrl]);
+		return false;
 	}
 
 	private function renderRequestPage(array $errors = [], array $formValues = []): void
