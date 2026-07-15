@@ -8,10 +8,15 @@ foreach ($requestTypes as $requestType) {
     $requestTypeLabels[(string)$requestType['type_code']] = (string)$requestType['type_label'];
 }
 $filters = $this->view->filters ?? ['state' => 'open', 'favorite' => false, 'q' => ''];
-$pagination = $this->view->pagination ?? ['page' => 1, 'total_pages' => 1, 'total' => count($rows)];
+$pagination = $this->view->pagination ?? ['page' => 1, 'per_page' => 50, 'total_pages' => 1, 'total' => count($rows)];
 $csrf = (string)($this->view->csrf ?? '');
 $errors = $this->view->errors ?? [];
 $infos = $this->view->infos ?? [];
+$requestTotal = (int)($pagination['total'] ?? count($rows));
+$requestPage = max(1, (int)($pagination['page'] ?? 1));
+$requestPerPage = max(1, (int)($pagination['per_page'] ?? 50));
+$requestRangeStart = $requestTotal > 0 ? (($requestPage - 1) * $requestPerPage) + 1 : 0;
+$requestRangeEnd = min($requestTotal, $requestPage * $requestPerPage);
 
 if (!function_exists('request_admin_h')) {
     function request_admin_h($value): string {
@@ -196,6 +201,13 @@ $this->load($this->getViewPath() . 'header.phtml');
       <button class="btn btn-outline-primary" type="submit"><i class="bi bi-search"></i> 絞り込み</button>
     </div>
   </form>
+
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <h2 class="h6 mb-0">リクエスト一覧</h2>
+    <span class="small text-secondary">
+      全<?php echo number_format($requestTotal); ?>件<?php if ($requestTotal > 0): ?>（<?php echo number_format($requestRangeStart); ?>〜<?php echo number_format($requestRangeEnd); ?>件を表示）<?php endif; ?>
+    </span>
+  </div>
 
   <?php if (!$rows): ?>
     <div class="alert alert-light border">該当するリクエストはありません。</div>
