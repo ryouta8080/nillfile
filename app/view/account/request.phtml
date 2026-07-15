@@ -138,28 +138,60 @@ $this->load($this->getViewPath() . 'header.phtml');
           </div>
         </div>
         <div class="col-12">
-          <label class="form-label">受け付ける種別</label>
-          <div class="d-flex flex-wrap gap-3 border rounded p-3">
-            <?php foreach ($requestTypes as $type): ?>
-              <?php $typeCode = (string)$type['type_code']; ?>
-              <div class="form-check">
-                <input class="form-check-input" id="requestType<?php echo request_admin_h($typeCode); ?>" type="checkbox" name="request_type_enabled[]" value="<?php echo request_admin_h($typeCode); ?>"<?php echo !empty($type['enabled_flag']) ? ' checked' : ''; ?>>
-                <label class="form-check-label" for="requestType<?php echo request_admin_h($typeCode); ?>"><?php echo request_admin_h($type['type_label']); ?></label>
-              </div>
-            <?php endforeach; ?>
+          <label class="form-label">種別ごとの受付・投稿制限</label>
+          <div class="table-responsive border rounded">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th scope="col">種別</th>
+                  <th scope="col" style="min-width: 12rem;">月間上限</th>
+                  <th scope="col" style="min-width: 12rem;">連続投稿間隔</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($requestTypes as $type): ?>
+                  <?php
+                  $typeCode = (string)$type['type_code'];
+                  $typeMonthlyLimit = array_key_exists('monthly_limit', $type) && $type['monthly_limit'] !== null ? (int)$type['monthly_limit'] : '';
+                  $typeCooldownMinutes = array_key_exists('cooldown_minutes', $type) && $type['cooldown_minutes'] !== null ? (int)$type['cooldown_minutes'] : '';
+                  ?>
+                  <tr>
+                    <td>
+                      <div class="form-check">
+                        <input class="form-check-input" id="requestType<?php echo request_admin_h($typeCode); ?>" type="checkbox" name="request_type_enabled[]" value="<?php echo request_admin_h($typeCode); ?>"<?php echo !empty($type['enabled_flag']) ? ' checked' : ''; ?>>
+                        <label class="form-check-label" for="requestType<?php echo request_admin_h($typeCode); ?>"><?php echo request_admin_h($type['type_label']); ?></label>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="input-group input-group-sm">
+                        <input class="form-control" type="number" name="request_type_monthly_limit[<?php echo request_admin_h($typeCode); ?>]" min="0" max="1000" value="<?php echo request_admin_h($typeMonthlyLimit); ?>" placeholder="制限なし">
+                        <span class="input-group-text">件</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="input-group input-group-sm">
+                        <input class="form-control" type="number" name="request_type_cooldown_minutes[<?php echo request_admin_h($typeCode); ?>]" min="0" max="525600" value="<?php echo request_admin_h($typeCooldownMinutes); ?>" placeholder="制限なし">
+                        <span class="input-group-text">分</span>
+                      </div>
+                    </td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
           </div>
+          <div class="form-text">空欄または0は、その種別固有の制限なしです。全体の投稿制限は別途適用されます。</div>
         </div>
         <div class="col-md-3">
           <label class="form-label" for="requestMaxLength">最大文字数</label>
           <input class="form-control" id="requestMaxLength" type="number" name="max_length" min="1" max="16000" value="<?php echo (int)($setting['max_length'] ?? 2000); ?>">
         </div>
         <div class="col-md-3">
-          <label class="form-label" for="requestMonthlyLimit">1人あたりの月間上限</label>
+          <label class="form-label" for="requestMonthlyLimit">全体の月間上限</label>
           <input class="form-control" id="requestMonthlyLimit" type="number" name="monthly_limit" min="0" max="1000" value="<?php echo (int)($setting['monthly_limit'] ?? 0); ?>">
           <div class="form-text">0は無制限</div>
         </div>
         <div class="col-md-3">
-          <label class="form-label" for="requestCooldownMinutes">連続投稿間隔（分）</label>
+          <label class="form-label" for="requestCooldownMinutes">全体の連続投稿間隔（分）</label>
           <input class="form-control" id="requestCooldownMinutes" type="number" name="cooldown_minutes" min="0" max="525600" value="<?php echo (int)($setting['cooldown_minutes'] ?? 0); ?>">
           <div class="form-text">0は制限なし、60で1時間</div>
         </div>

@@ -10,9 +10,31 @@ $formValues = $this->view->formValues ?? [];
 $requestFlash = (string)($this->view->requestFlash ?? '');
 $isPaid = !empty($this->view->isPaid);
 $adminBypass = !empty($this->view->adminBypass);
-$canSubmit = !empty($setting['accept_flag']) && ($adminBypass || empty($setting['paid_only_flag']) || $isPaid) && !empty($requestTypes);
+$availableRequestTypes = [];
+$requestLimitMessages = [];
+$requestLimitReached = false;
+$requestCooldownRemainingSeconds = null;
+$requestCooldownMessage = '';
+foreach ($requestTypes as $requestType) {
+    if (!array_key_exists('available_flag', $requestType) || !empty($requestType['available_flag'])) {
+        $availableRequestTypes[] = $requestType;
+        continue;
+    }
+    if (!empty($requestType['limit_reached'])) {
+        $requestLimitReached = true;
+        continue;
+    }
+    $remainingSeconds = max(0, (int)($requestType['cooldown_remaining_seconds'] ?? 0));
+    if ($remainingSeconds > 0 && ($requestCooldownRemainingSeconds === null || $remainingSeconds < $requestCooldownRemainingSeconds)) {
+        $requestCooldownRemainingSeconds = $remainingSeconds;
+        $requestCooldownMessage = (string)($requestType['restriction_message'] ?? '');
+    }
+}
+if ($requestLimitReached) $requestLimitMessages[] = 'リクエストの上限に達しています。';
+if ($requestCooldownMessage !== '') $requestLimitMessages[] = $requestCooldownMessage;
+$canSubmit = !empty($setting['accept_flag']) && ($adminBypass || empty($setting['paid_only_flag']) || $isPaid) && !empty($availableRequestTypes);
 $maxLength = max(1, (int)($setting['max_length'] ?? 2000));
-$defaultRequestType = (string)($requestTypes[0]['type_code'] ?? '');
+$defaultRequestType = (string)($availableRequestTypes[0]['type_code'] ?? '');
 
 if (!function_exists('request_page_h')) {
     function request_page_h($value): string {
@@ -66,8 +88,15 @@ $this->load($this->getViewPath() . 'header.phtml');
             <label class="form-label" for="requestType">希望する形式</label>
             <select class="form-select" id="requestType" name="request_type">
               <?php foreach ($requestTypes as $type): ?>
-                <?php $value = (string)$type['type_code']; ?>
-                <option value="<?php echo request_page_h($value); ?>"<?php echo (($formValues['request_type'] ?? $defaultRequestType) === $value) ? ' selected' : ''; ?>><?php echo request_page_h($type['type_label']); ?></option>
+                <?php
+                $value = (string)$type['type_code'];
+                $typeAvailable = !array_key_exists('available_flag', $type) || !empty($type['available_flag']);
+                $typeOptionLabel = (string)$type['type_label'];
+                if (!$typeAvailable && !empty($type['restriction_label'])) {
+                    $typeOptionLabel .= '（' . $type['restriction_label'] . '）';
+                }
+                ?>
+                <option value="<?php echo request_page_h($value); ?>"<?php echo (($formValues['request_type'] ?? $defaultRequestType) === $value) ? ' selected' : ''; ?><?php echo $typeAvailable ? '' : ' disabled'; ?>><?php echo request_page_h($typeOptionLabel); ?></option>
               <?php endforeach; ?>
             </select>
           </div>
@@ -92,12 +121,17 @@ $this->load($this->getViewPath() . 'header.phtml');
     </section>
   <?php elseif (empty($setting['accept_flag'])): ?>
     <div class="alert alert-secondary mb-4">現在、リクエストの受付を停止しています。</div>
+  <?php elseif (!$adminBypass && !empty($setting['paid_only_flag']) && !$isPaid): ?>
+    <div class="alert alert-secondary mb-4">現在のプランではリクエストを送信できません。</div>
+  <?php elseif (!$requestTypes): ?>
+    <div class="alert alert-secondary mb-4">現在、受付可能なリクエスト種別がありません。</div>
   <?php else: ?>
-    <?php if (!$adminBypass && !empty($setting['paid_only_flag']) && !$isPaid): ?>
-      <div class="alert alert-secondary mb-4">現在のプランではリクエストを送信できません。</div>
-    <?php else: ?>
-      <div class="alert alert-secondary mb-4">現在、受付可能なリクエスト種別がありません。</div>
-    <?php endif; ?>
+    <div class="alert alert-secondary mb-4">
+      <div class="fw-semibold<?php echo $requestLimitMessages ? ' mb-1' : ''; ?>">現在、投稿できるリクエスト種別がありません。</div>
+      <?php foreach ($requestLimitMessages as $message): ?>
+        <div class="small"><?php echo request_page_h($message); ?></div>
+      <?php endforeach; ?>
+    </div>
   <?php endif; ?>
 
   <section>

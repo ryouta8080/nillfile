@@ -24,6 +24,7 @@ CREATE TABLE request_idea (
   reg_datetime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (request_id),
   KEY idx_request_idea_member_date (member_id, reg_datetime),
+  KEY idx_request_idea_member_type_date (member_id, request_type, reg_datetime),
   KEY idx_request_idea_admin (done_flag, favorite_flag, withdrawn_flag, hidden_flag, reg_datetime),
   KEY idx_request_idea_content_id (content_id),
   KEY idx_request_idea_del_flag (del_flag)
@@ -50,6 +51,8 @@ CREATE TABLE request_type_setting (
   type_code VARCHAR(32) NOT NULL,
   type_label VARCHAR(64) NOT NULL,
   enabled_flag TINYINT NOT NULL DEFAULT 0,
+  monthly_limit INT UNSIGNED NULL,
+  cooldown_minutes INT UNSIGNED NULL,
   sort_order INT NOT NULL DEFAULT 0,
   del_flag TINYINT NOT NULL DEFAULT 0,
   upd_datetime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

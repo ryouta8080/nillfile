@@ -52,18 +52,8 @@ class RequestPage extends PTUserPage
 		}
 
 		$memberId = (int)($this->member['member_id'] ?? 0);
-		$monthlyLimit = max(0, (int)$setting['monthly_limit']);
-		$cooldownMinutes = max(0, (int)$setting['cooldown_minutes']);
 		if ($memberId <= 0) {
 			$errors[] = '会員情報を確認できませんでした。';
-		} elseif (!$adminBypass && $monthlyLimit > 0 && $this->countCurrentMonthRequests($memberId) >= $monthlyLimit) {
-			$errors[] = '今月のリクエスト上限（' . $monthlyLimit . '件）に達しています。';
-		}
-		if (!$adminBypass && $memberId > 0 && $cooldownMinutes > 0) {
-			$remainingSeconds = $this->getRequestCooldownRemainingSeconds($memberId, $cooldownMinutes);
-			if ($remainingSeconds > 0) {
-				$errors[] = '連続投稿制限中です。次の投稿まで' . $this->formatRequestCooldown($remainingSeconds) . 'お待ちください。';
-			}
 		}
 
 		$patreonId = trim((string)($patreon['id'] ?? ''));
@@ -71,12 +61,26 @@ class RequestPage extends PTUserPage
 			$errors[] = 'Patreon連携情報を確認できませんでした。';
 		}
 
-		$allowedTypeCodes = array_column($requestTypes, 'type_code');
+		$requestTypesByCode = [];
+		foreach ($requestTypes as $type) {
+			$requestTypesByCode[(string)$type['type_code']] = $type;
+		}
+		$allowedTypeCodes = array_keys($requestTypesByCode);
 		$requestType = (string)($_POST['request_type'] ?? ($allowedTypeCodes[0] ?? ''));
 		if (!$allowedTypeCodes) {
 			$errors[] = '現在、受付可能なリクエスト種別がありません。';
 		} elseif (!in_array($requestType, $allowedTypeCodes, true)) {
 			$errors[] = '選択されたリクエスト種別は現在受け付けていません。';
+		} elseif (
+			!$adminBypass
+			&& $memberId > 0
+			&& !empty($setting['accept_flag'])
+			&& (empty($setting['paid_only_flag']) || $isPaid)
+		) {
+			$restriction = $this->getRequestTypeRestriction($memberId, $requestTypesByCode[$requestType], $setting);
+			foreach ($restriction['messages'] as $message) {
+				$errors[] = $message;
+			}
 		}
 
 		if ($errors) {
@@ -154,13 +158,38 @@ class RequestPage extends PTUserPage
 	{
 		$setting = $this->loadRequestSetting();
 		$allRequestTypes = $this->loadRequestTypes();
+		$memberId = (int)($this->member['member_id'] ?? 0);
+		$patreon = $this->member['patreon'] ?? [];
+		$isPaid = (($patreon['status'] ?? '') === 'active_patron');
+		$adminBypass = !empty($setting['admin_bypass_flag']) && $this->util->isAdmin($this->member);
+		$checkTypeRestrictions = !$adminBypass
+			&& $memberId > 0
+			&& !empty($setting['accept_flag'])
+			&& (empty($setting['paid_only_flag']) || $isPaid);
+		$globalRestriction = $checkTypeRestrictions
+			? $this->getGlobalRequestRestriction($memberId, $setting)
+			: null;
 		$requestTypes = [];
 		$requestTypeLabels = [];
 		foreach ($allRequestTypes as $type) {
 			$requestTypeLabels[(string)$type['type_code']] = (string)$type['type_label'];
-			if (!empty($type['enabled_flag'])) $requestTypes[] = $type;
+			if (empty($type['enabled_flag'])) continue;
+
+			$type['available_flag'] = 1;
+			$type['restriction_message'] = '';
+			$type['restriction_label'] = '';
+			$type['limit_reached'] = 0;
+			$type['cooldown_remaining_seconds'] = 0;
+			if ($checkTypeRestrictions) {
+				$restriction = $this->getRequestTypeRestriction($memberId, $type, $setting, $globalRestriction);
+				$type['available_flag'] = $restriction['available'] ? 1 : 0;
+				$type['restriction_message'] = implode(' ', $restriction['messages']);
+				$type['restriction_label'] = implode('・', $restriction['labels']);
+				$type['limit_reached'] = $restriction['limit_reached'] ? 1 : 0;
+				$type['cooldown_remaining_seconds'] = $restriction['cooldown_remaining_seconds'];
+			}
+			$requestTypes[] = $type;
 		}
-		$memberId = (int)($this->member['member_id'] ?? 0);
 		$page = max(1, (int)($_GET['page'] ?? 1));
 		$perPage = 20;
 		$model = new RequestIdeaModel();
@@ -173,8 +202,6 @@ class RequestPage extends PTUserPage
 			->limit(($page - 1) * $perPage, $perPage);
 		$result = $model->select();
 
-		$patreon = $this->member['patreon'] ?? [];
-		$adminBypass = !empty($setting['admin_bypass_flag']) && $this->util->isAdmin($this->member);
 		$flash = $this->consumeRequestFlash();
 		$this->view->csrf = $this->requestCsrfToken();
 		$this->view->setting = $setting;
@@ -187,7 +214,7 @@ class RequestPage extends PTUserPage
 			'total' => $total,
 			'total_pages' => $totalPages,
 		];
-		$this->view->isPaid = (($patreon['status'] ?? '') === 'active_patron');
+		$this->view->isPaid = $isPaid;
 		$this->view->adminBypass = $adminBypass;
 		$this->view->errors = $errors;
 		$this->view->formValues = $formValues;
@@ -226,20 +253,90 @@ class RequestPage extends PTUserPage
 		return ($result && $result->total > 0) ? $result->data : [];
 	}
 
-	private function countCurrentMonthRequests(int $memberId): int
+	private function getGlobalRequestRestriction(int $memberId, array $setting): array
+	{
+		$monthlyLimit = max(0, min(1000, (int)($setting['monthly_limit'] ?? 0)));
+		$limitReached = false;
+		if ($monthlyLimit > 0) {
+			$limitReached = $this->countCurrentMonthRequests($memberId) >= $monthlyLimit;
+		}
+
+		$cooldownMinutes = max(0, min(525600, (int)($setting['cooldown_minutes'] ?? 0)));
+		$cooldownRemainingSeconds = 0;
+		if ($cooldownMinutes > 0) {
+			$cooldownRemainingSeconds = $this->getRequestCooldownRemainingSeconds($memberId, $cooldownMinutes);
+		}
+
+		return [
+			'limit_reached' => $limitReached,
+			'cooldown_remaining_seconds' => $cooldownRemainingSeconds,
+		];
+	}
+
+	private function getRequestTypeRestriction(int $memberId, array $type, array $setting, ?array $globalRestriction = null): array
+	{
+		$typeCode = (string)($type['type_code'] ?? '');
+		if ($globalRestriction === null) {
+			$globalRestriction = $this->getGlobalRequestRestriction($memberId, $setting);
+		}
+
+		$limitReached = !empty($globalRestriction['limit_reached']);
+		$cooldownRemainingSeconds = max(0, (int)($globalRestriction['cooldown_remaining_seconds'] ?? 0));
+
+		$typeMonthlyLimit = max(0, min(1000, (int)($type['monthly_limit'] ?? 0)));
+		if ($typeMonthlyLimit > 0 && $this->countCurrentMonthRequests($memberId, $typeCode) >= $typeMonthlyLimit) {
+			$limitReached = true;
+		}
+
+		$typeCooldownMinutes = max(0, min(525600, (int)($type['cooldown_minutes'] ?? 0)));
+		if ($typeCooldownMinutes > 0) {
+			$typeCooldownRemainingSeconds = $this->getRequestCooldownRemainingSeconds($memberId, $typeCooldownMinutes, $typeCode);
+			$cooldownRemainingSeconds = max($cooldownRemainingSeconds, $typeCooldownRemainingSeconds);
+		}
+
+		$messages = [];
+		$labels = [];
+		if ($limitReached) {
+			$messages[] = 'リクエストの上限に達しています。';
+			$labels[] = '上限に達しています';
+		} elseif ($cooldownRemainingSeconds > 0) {
+			$remaining = $this->formatRequestCooldown($cooldownRemainingSeconds);
+			$messages[] = '連続投稿制限中です。次の投稿まで' . $remaining . 'お待ちください。';
+			$labels[] = 'あと' . $remaining;
+		}
+
+		return [
+			'available' => !$limitReached && $cooldownRemainingSeconds <= 0,
+			'messages' => $messages,
+			'labels' => $labels,
+			'limit_reached' => $limitReached,
+			'cooldown_remaining_seconds' => $cooldownRemainingSeconds,
+		];
+	}
+
+	private function countCurrentMonthRequests(int $memberId, ?string $requestType = null): int
 	{
 		$now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
 		$start = $now->format('Y-m-01 00:00:00');
 		$model = new RequestIdeaModel();
-		$count = $model->where('member_id=? and reg_datetime>=?', [$memberId, $start])->count();
+		if ($requestType === null) {
+			$model->where('member_id=? and reg_datetime>=?', [$memberId, $start]);
+		} else {
+			$model->where('member_id=? and request_type=? and reg_datetime>=?', [$memberId, $requestType, $start]);
+		}
+		$count = $model->count();
 		return $count === false ? 0 : (int)$count;
 	}
 
-	private function getRequestCooldownRemainingSeconds(int $memberId, int $cooldownMinutes): int
+	private function getRequestCooldownRemainingSeconds(int $memberId, int $cooldownMinutes, ?string $requestType = null): int
 	{
 		$model = new RequestIdeaModel();
+		if ($requestType === null) {
+			$model->where('member_id=?', [$memberId]);
+		} else {
+			$model->where('member_id=? and request_type=?', [$memberId, $requestType]);
+		}
 		$result = $model
-			->where('member_id=?', [$memberId])
 			->orderBy('request_idea.reg_datetime desc')
 			->limit(1)
 			->select();

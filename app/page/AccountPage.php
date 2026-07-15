@@ -327,8 +327,21 @@ class AccountPage extends PTUserPage
 		$enabledCodes = array_values(array_intersect($enabledCodes, $knownCodes));
 		if (!$requestTypes || !$enabledCodes) return false;
 
+		$postedTypeMonthlyLimits = $_POST['request_type_monthly_limit'] ?? [];
+		$postedTypeCooldownMinutes = $_POST['request_type_cooldown_minutes'] ?? [];
+		if (!is_array($postedTypeMonthlyLimits)) $postedTypeMonthlyLimits = [];
+		if (!is_array($postedTypeCooldownMinutes)) $postedTypeCooldownMinutes = [];
+		$typeLimits = [];
+		foreach ($requestTypes as $type) {
+			$typeCode = (string)$type['type_code'];
+			$typeLimits[$typeCode] = [
+				'monthly_limit' => $this->normalizeRequestTypeLimitAdmin($postedTypeMonthlyLimits, $typeCode, 1000),
+				'cooldown_minutes' => $this->normalizeRequestTypeLimitAdmin($postedTypeCooldownMinutes, $typeCode, 525600),
+			];
+		}
+
 		$settingModel = new RequestSettingModel();
-		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $requestTypes, $enabledCodes) {
+		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $requestTypes, $enabledCodes, $typeLimits) {
 			$saved = $settingModel->save([
 				'setting_id' => 1,
 				'accept_flag' => isset($_POST['accept_flag']) ? 1 : 0,
@@ -343,17 +356,28 @@ class AccountPage extends PTUserPage
 			if (!$saved) return false;
 
 			foreach ($requestTypes as $type) {
+				$typeCode = (string)$type['type_code'];
 				$typeModel = new RequestTypeSettingModel();
 				$typeSaved = $typeModel->save([
-					'type_code' => (string)$type['type_code'],
+					'type_code' => $typeCode,
 					'type_label' => (string)$type['type_label'],
-					'enabled_flag' => in_array((string)$type['type_code'], $enabledCodes, true) ? 1 : 0,
+					'enabled_flag' => in_array($typeCode, $enabledCodes, true) ? 1 : 0,
+					'monthly_limit' => $typeLimits[$typeCode]['monthly_limit'],
+					'cooldown_minutes' => $typeLimits[$typeCode]['cooldown_minutes'],
 					'sort_order' => (int)$type['sort_order'],
 				]);
 				if (!$typeSaved) return false;
 			}
 			return true;
 		});
+	}
+
+	private function normalizeRequestTypeLimitAdmin(array $values, string $typeCode, int $maximum): ?int
+	{
+		if (!array_key_exists($typeCode, $values)) return null;
+		$value = trim((string)$values[$typeCode]);
+		if ($value === '') return null;
+		return max(0, min($maximum, (int)$value));
 	}
 
 	private function loadRequestSettingAdmin(): array

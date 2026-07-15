@@ -8,6 +8,8 @@ class RequestTypeSettingModel extends PTBaseModel
 			'type_code' => 'type_code',
 			'type_label' => 'type_label',
 			'enabled_flag' => 'enabled_flag',
+			'monthly_limit' => 'monthly_limit',
+			'cooldown_minutes' => 'cooldown_minutes',
 			'sort_order' => 'sort_order',
 			'del_flag' => 'del_flag',
 			'upd_datetime' => 'upd_datetime',
