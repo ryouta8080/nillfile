@@ -14,6 +14,8 @@ class RequestSettingModel extends PTBaseModel
 			'cooldown_minutes' => 'cooldown_minutes',
 			'paid_only_flag' => 'paid_only_flag',
 			'admin_bypass_flag' => 'admin_bypass_flag',
+			'attachment_enabled_flag' => 'attachment_enabled_flag',
+			'attachment_max_size_mb' => 'attachment_max_size_mb',
 			'del_flag' => 'del_flag',
 			'upd_datetime' => 'upd_datetime',
 			'reg_datetime' => 'reg_datetime',

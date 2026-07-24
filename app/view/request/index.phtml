@@ -35,6 +35,8 @@ if ($requestCooldownMessage !== '') $requestLimitMessages[] = $requestCooldownMe
 $canSubmit = !empty($setting['accept_flag']) && ($adminBypass || empty($setting['paid_only_flag']) || $isPaid) && !empty($availableRequestTypes);
 $maxLength = max(1, (int)($setting['max_length'] ?? 2000));
 $defaultRequestType = (string)($availableRequestTypes[0]['type_code'] ?? '');
+$attachmentEnabled = !empty($setting['attachment_enabled_flag']);
+$attachmentMaxSizeMb = max(1, min(50, (int)($setting['attachment_max_size_mb'] ?? 10)));
 
 if (!function_exists('request_page_h')) {
     function request_page_h($value): string {
@@ -51,6 +53,19 @@ if (!function_exists('request_page_type_label')) {
 
 $this->load($this->getViewPath() . 'header.phtml');
 ?>
+
+<style>
+.request-user-message {
+  background: #e7f1ff;
+  border: 1px solid #b6d4fe;
+  border-left: 4px solid #0d6efd;
+  border-radius: 4px;
+  color: #084298;
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
+</style>
 
 <main class="container py-4" style="max-width: 960px;">
   <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
@@ -81,7 +96,7 @@ $this->load($this->getViewPath() . 'header.phtml');
   <?php if ($canSubmit): ?>
     <section class="border rounded p-3 mb-4">
       <h2 class="h5 mb-3">新しいリクエスト</h2>
-      <form id="requestSubmitForm" method="post" action="/request/submit">
+      <form id="requestSubmitForm" method="post" action="/request/submit" enctype="multipart/form-data">
         <input type="hidden" name="_csrf" value="<?php echo request_page_h($csrf); ?>">
         <div class="row g-3">
           <div class="col-md-6">
@@ -111,6 +126,19 @@ $this->load($this->getViewPath() . 'header.phtml');
               <label class="form-check-label" for="requestNsfw">NSFWを希望</label>
             </div>
           </div>
+          <?php if ($attachmentEnabled): ?>
+            <div class="col-12">
+              <label class="form-label" for="requestAttachment">画像を添付（任意）</label>
+              <input class="form-control" id="requestAttachment" type="file" name="attachment" accept="image/jpeg,image/png,image/webp,image/gif">
+              <div class="form-text">1枚まで。JPEG・PNG・WebP・GIF、<?php echo $attachmentMaxSizeMb; ?>MBまで</div>
+              <div class="align-items-start gap-2 mt-2 d-none" id="requestAttachmentPreview">
+                <img class="border rounded" id="requestAttachmentPreviewImage" alt="添付画像のプレビュー" style="display:block; max-height:180px; max-width:min(100%, 320px); object-fit:contain;">
+                <button class="btn btn-sm btn-outline-secondary" id="requestAttachmentRemove" type="button" title="添付画像を解除">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>
+            </div>
+          <?php endif; ?>
           <div class="col-12 d-flex justify-content-end">
             <button class="btn btn-primary" type="submit">
               <i class="bi bi-send"></i> 送信
@@ -149,6 +177,9 @@ $this->load($this->getViewPath() . 'header.phtml');
               <button class="accordion-button<?php echo $index === 0 ? '' : ' collapsed'; ?>" type="button" data-bs-toggle="collapse" data-bs-target="#requestBody<?php echo $requestId; ?>">
                 <?php $historyTypeCode = (string)($row['request_type'] ?? 'other'); ?>
                 <span class="me-2"><?php echo request_page_h($requestTypeLabels[$historyTypeCode] ?? request_page_type_label($historyTypeCode)); ?></span>
+                <?php if (in_array((string)($row['attachment_status'] ?? 'none'), ['stored', 'deleted'], true)): ?>
+                  <span class="badge text-bg-light border me-2"><i class="bi bi-paperclip"></i> 画像添付あり</span>
+                <?php endif; ?>
                 <span class="text-secondary small"><?php echo request_page_h($row['reg_datetime'] ?? ''); ?></span>
               </button>
             </h3>
@@ -156,10 +187,7 @@ $this->load($this->getViewPath() . 'header.phtml');
               <div class="accordion-body">
                 <div class="mb-3" style="white-space: pre-wrap;"><?php echo request_page_h($row['request_text'] ?? ''); ?></div>
                 <?php if (!empty($row['reply_visible_flag']) && !empty($row['reply_text'])): ?>
-                  <div class="border-start border-3 ps-3 mb-3">
-                    <div class="small fw-semibold mb-1">管理者からの返信</div>
-                    <div style="white-space: pre-wrap;"><?php echo request_page_h($row['reply_text']); ?></div>
-                  </div>
+                  <div class="request-user-message mb-3"><?php echo request_page_h($row['reply_text']); ?></div>
                 <?php endif; ?>
                 <form method="post" action="/request/withdraw" onsubmit="return confirm('このリクエストを取り下げますか？');">
                   <input type="hidden" name="_csrf" value="<?php echo request_page_h($csrf); ?>">
@@ -213,6 +241,8 @@ $this->load($this->getViewPath() . 'header.phtml');
             <dd class="col-sm-8" id="requestConfirmType"></dd>
             <dt class="col-sm-4">NSFW</dt>
             <dd class="col-sm-8" id="requestConfirmNsfw"></dd>
+            <dt class="col-sm-4">画像添付</dt>
+            <dd class="col-sm-8" id="requestConfirmAttachment"></dd>
           </dl>
           <div class="fw-semibold mb-2">リクエスト内容</div>
           <div class="border rounded p-3 bg-light" id="requestConfirmText" style="white-space: pre-wrap; overflow-wrap: anywhere;"></div>
@@ -243,6 +273,53 @@ $this->load($this->getViewPath() . 'header.phtml');
   var confirmButton = document.getElementById('requestConfirmSubmit');
   if (!form || !modalElement || !confirmButton) return;
 
+  var attachmentInput = document.getElementById('requestAttachment');
+  var attachmentPreview = document.getElementById('requestAttachmentPreview');
+  var attachmentPreviewImage = document.getElementById('requestAttachmentPreviewImage');
+  var attachmentRemove = document.getElementById('requestAttachmentRemove');
+  var attachmentObjectUrl = '';
+  var attachmentMaxBytes = <?php echo $attachmentMaxSizeMb * 1024 * 1024; ?>;
+  var attachmentMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+
+  function clearAttachment(clearInput){
+    if (!attachmentInput) return;
+    if (clearInput !== false) attachmentInput.value = '';
+    attachmentInput.setCustomValidity('');
+    if (attachmentObjectUrl) URL.revokeObjectURL(attachmentObjectUrl);
+    attachmentObjectUrl = '';
+    if (attachmentPreviewImage) attachmentPreviewImage.removeAttribute('src');
+    if (attachmentPreview) {
+      attachmentPreview.classList.add('d-none');
+      attachmentPreview.classList.remove('d-flex');
+    }
+  }
+
+  if (attachmentInput) {
+    attachmentInput.addEventListener('change', function(){
+      var file = attachmentInput.files && attachmentInput.files[0] ? attachmentInput.files[0] : null;
+      clearAttachment(false);
+      if (!file) return;
+      if (attachmentMimeTypes.indexOf(file.type) === -1) {
+        alert('JPEG、PNG、WebP、GIFを選択してください。');
+        clearAttachment(true);
+        return;
+      }
+      if (file.size > attachmentMaxBytes) {
+        alert('画像の容量が上限を超えています。');
+        clearAttachment(true);
+        return;
+      }
+      attachmentInput.setCustomValidity('');
+      attachmentObjectUrl = URL.createObjectURL(file);
+      if (attachmentPreviewImage) attachmentPreviewImage.src = attachmentObjectUrl;
+      if (attachmentPreview) {
+        attachmentPreview.classList.remove('d-none');
+        attachmentPreview.classList.add('d-flex');
+      }
+    });
+  }
+  if (attachmentRemove) attachmentRemove.addEventListener('click', function(){ clearAttachment(true); });
+
   form.addEventListener('submit', function(event){
     event.preventDefault();
     if (!form.checkValidity()) {
@@ -255,6 +332,7 @@ $this->load($this->getViewPath() . 'header.phtml');
     var selectedType = type && type.selectedOptions.length ? type.selectedOptions[0].textContent : '';
     document.getElementById('requestConfirmType').textContent = selectedType;
     document.getElementById('requestConfirmNsfw').textContent = nsfw && nsfw.checked ? '希望する' : '希望しない';
+    document.getElementById('requestConfirmAttachment').textContent = attachmentInput && attachmentInput.files.length ? 'あり' : 'なし';
     document.getElementById('requestConfirmText').textContent = input ? input.value : '';
     bootstrap.Modal.getOrCreateInstance(modalElement).show();
   });

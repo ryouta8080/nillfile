@@ -97,6 +97,42 @@ $this->load($this->getViewPath() . 'header.phtml');
   font-size: 0.8125rem;
   margin-bottom: 0.25rem;
 }
+.request-admin-attachment-thumb {
+  display: block;
+  height: 96px;
+  object-fit: cover;
+  width: 96px;
+}
+.request-admin-details {
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.5rem;
+}
+.request-admin-details > summary {
+  align-items: center;
+  color: #495057;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.8125rem;
+  gap: 0.35rem;
+  list-style: none;
+  user-select: none;
+}
+.request-admin-details > summary::-webkit-details-marker {
+  display: none;
+}
+.request-admin-details > summary .bi-chevron-right {
+  transition: transform 0.15s ease;
+}
+.request-admin-details[open] > summary .bi-chevron-right {
+  transform: rotate(90deg);
+}
+.request-admin-details-body {
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  margin-top: 0.5rem;
+  padding: 0.65rem;
+}
 </style>
 
 <main class="container py-4">
@@ -132,9 +168,13 @@ $this->load($this->getViewPath() . 'header.phtml');
             <input class="form-check-input" id="paidOnlyFlag" type="checkbox" name="paid_only_flag" value="1"<?php echo !empty($setting['paid_only_flag']) ? ' checked' : ''; ?>>
             <label class="form-check-label" for="paidOnlyFlag">有料プランの支援者だけ受け付ける</label>
           </div>
-          <div class="form-check form-switch">
+          <div class="form-check form-switch mb-3">
             <input class="form-check-input" id="adminBypassFlag" type="checkbox" name="admin_bypass_flag" value="1"<?php echo !empty($setting['admin_bypass_flag']) ? ' checked' : ''; ?>>
             <label class="form-check-label" for="adminBypassFlag">管理者の投稿制限を免除する</label>
+          </div>
+          <div class="form-check form-switch">
+            <input class="form-check-input" id="attachmentEnabledFlag" type="checkbox" name="attachment_enabled_flag" value="1"<?php echo !empty($setting['attachment_enabled_flag']) ? ' checked' : ''; ?>>
+            <label class="form-check-label" for="attachmentEnabledFlag">参考画像の添付を受け付ける</label>
           </div>
         </div>
         <div class="col-12">
@@ -194,6 +234,13 @@ $this->load($this->getViewPath() . 'header.phtml');
           <label class="form-label" for="requestCooldownMinutes">全体の連続投稿間隔（分）</label>
           <input class="form-control" id="requestCooldownMinutes" type="number" name="cooldown_minutes" min="0" max="525600" value="<?php echo (int)($setting['cooldown_minutes'] ?? 0); ?>">
           <div class="form-text">0は制限なし、60で1時間</div>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="attachmentMaxSizeMb">添付画像の最大容量</label>
+          <div class="input-group">
+            <input class="form-control" id="attachmentMaxSizeMb" type="number" name="attachment_max_size_mb" min="1" max="50" value="<?php echo (int)($setting['attachment_max_size_mb'] ?? 10); ?>">
+            <span class="input-group-text">MB</span>
+          </div>
         </div>
         <div class="col-md-6">
           <label class="form-label" for="requestDescription">説明文・注意事項</label>
@@ -267,6 +314,11 @@ $this->load($this->getViewPath() . 'header.phtml');
             <span class="badge text-bg-dark"><?php echo request_admin_h($requestTypeLabels[$adminTypeCode] ?? request_admin_type_label($adminTypeCode)); ?></span>
             <?php if (!empty($row['category'])): ?><span class="badge text-bg-light border"><?php echo request_admin_h($row['category']); ?></span><?php endif; ?>
             <?php if (!empty($row['is_nsfw'])): ?><span class="badge text-bg-danger">成人向け</span><?php endif; ?>
+            <?php if ((string)($row['attachment_status'] ?? 'none') === 'stored'): ?>
+              <span class="badge text-bg-light border"><i class="bi bi-paperclip"></i> 画像添付</span>
+            <?php elseif ((string)($row['attachment_status'] ?? 'none') === 'deleted'): ?>
+              <span class="badge text-bg-secondary">添付削除済み</span>
+            <?php endif; ?>
             <time class="text-secondary small ms-lg-auto" datetime="<?php echo request_admin_h($row['reg_datetime'] ?? ''); ?>"><?php echo request_admin_h($row['reg_datetime'] ?? ''); ?></time>
           </header>
 
@@ -279,12 +331,36 @@ $this->load($this->getViewPath() . 'header.phtml');
             </div>
             <div class="request-admin-text"><?php echo request_admin_h($row['request_text'] ?? ''); ?></div>
 
+            <?php if ((string)($row['attachment_status'] ?? 'none') === 'stored'): ?>
+              <div class="d-flex align-items-center flex-wrap gap-2 mt-2">
+                <a href="/account/requestattachment?request_id=<?php echo $requestId; ?>" target="_blank" rel="noopener">
+                  <img class="request-admin-attachment-thumb border rounded" src="/account/requestattachment?request_id=<?php echo $requestId; ?>" alt="リクエスト #<?php echo $requestId; ?> の添付画像" loading="lazy" decoding="async">
+                </a>
+                <div>
+                  <div class="small text-secondary mb-2"><?php echo number_format(((int)($row['attachment_size'] ?? 0)) / 1024, 1); ?>KB</div>
+                  <div class="d-flex gap-2">
+                    <a class="btn btn-sm btn-outline-primary" href="/account/requestattachment?request_id=<?php echo $requestId; ?>" target="_blank" rel="noopener">
+                      <i class="bi bi-arrows-fullscreen"></i> 表示
+                    </a>
+                    <form method="post" action="/account/request" onsubmit="return confirm('添付画像をサーバーから削除しますか？この操作は取り消せません。');">
+                      <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
+                      <input type="hidden" name="operation" value="delete_request_attachment">
+                      <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
+                      <button class="btn btn-sm btn-outline-danger" type="submit"><i class="bi bi-trash"></i> 削除</button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            <?php elseif ((string)($row['attachment_status'] ?? 'none') === 'deleted'): ?>
+              <div class="small text-secondary mt-2"><i class="bi bi-paperclip"></i> 添付画像はサーバーから削除済みです。</div>
+            <?php endif; ?>
+
             <form class="request-admin-controls mt-2" method="post" action="/account/request">
               <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
               <input type="hidden" name="operation" value="update_request">
               <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
-              <div class="row g-2 align-items-end">
-                <div class="col-xl-3">
+              <div class="row g-2">
+                <div class="col-12">
                   <div class="request-admin-flags py-1">
                     <div class="form-check form-switch">
                       <input class="form-check-input js-request-flag" id="favorite<?php echo $requestId; ?>" type="checkbox" name="favorite_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="favorite_flag"<?php echo $favorite ? ' checked' : ''; ?>>
@@ -300,23 +376,48 @@ $this->load($this->getViewPath() . 'header.phtml');
                     </div>
                   </div>
                 </div>
-                <div class="col-md-4 col-xl-3">
-                  <label class="form-label" for="content<?php echo $requestId; ?>">関連コンテンツ</label>
-                  <select class="form-select form-select-sm" id="content<?php echo $requestId; ?>" name="content_id">
-                    <option value="0">紐付けなし</option>
-                    <?php foreach ($contents as $content): ?>
-                      <option value="<?php echo (int)$content['content_id']; ?>"<?php echo ((int)($row['content_id'] ?? 0) === (int)$content['content_id']) ? ' selected' : ''; ?>>
-                        #<?php echo (int)$content['content_id']; ?> <?php echo request_admin_h($content['title'] ?? ''); ?>
-                      </option>
-                    <?php endforeach; ?>
-                  </select>
-                </div>
-                <div class="col-md-6 col-xl-5">
-                  <label class="form-label" for="memo<?php echo $requestId; ?>">管理メモ（投稿者には非表示）</label>
-                  <textarea class="form-control form-control-sm" id="memo<?php echo $requestId; ?>" name="admin_memo" rows="1" maxlength="16000"><?php echo request_admin_h($row['admin_memo'] ?? ''); ?></textarea>
-                </div>
-                <div class="col-md-2 col-xl-1 d-grid">
-                  <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-save"></i> 更新</button>
+                <div class="col-12">
+                  <details class="request-admin-details">
+                    <summary>
+                      <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                      詳細設定
+                      <?php if (!empty($row['admin_memo'])): ?><span class="badge text-bg-light border">メモあり</span><?php endif; ?>
+                      <?php if (!empty($row['content_id'])): ?><span class="badge text-bg-light border">関連あり</span><?php endif; ?>
+                      <?php if (!empty($row['reply_text'])): ?><span class="badge text-bg-light border">メッセージあり</span><?php endif; ?>
+                    </summary>
+                    <div class="request-admin-details-body">
+                      <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                          <label class="form-label" for="content<?php echo $requestId; ?>">関連コンテンツ</label>
+                          <select class="form-select form-select-sm" id="content<?php echo $requestId; ?>" name="content_id">
+                            <option value="0">紐付けなし</option>
+                            <?php foreach ($contents as $content): ?>
+                              <option value="<?php echo (int)$content['content_id']; ?>"<?php echo ((int)($row['content_id'] ?? 0) === (int)$content['content_id']) ? ' selected' : ''; ?>>
+                                #<?php echo (int)$content['content_id']; ?> <?php echo request_admin_h($content['title'] ?? ''); ?>
+                              </option>
+                            <?php endforeach; ?>
+                          </select>
+                        </div>
+                        <div class="col-md-8">
+                          <label class="form-label" for="memo<?php echo $requestId; ?>">管理メモ（投稿者には非表示）</label>
+                          <textarea class="form-control form-control-sm" id="memo<?php echo $requestId; ?>" name="admin_memo" rows="1" maxlength="16000"><?php echo request_admin_h($row['admin_memo'] ?? ''); ?></textarea>
+                        </div>
+                        <div class="col-md-9">
+                          <label class="form-label" for="reply<?php echo $requestId; ?>">ユーザー向けメッセージ</label>
+                          <textarea class="form-control form-control-sm" id="reply<?php echo $requestId; ?>" name="reply_text" rows="1" maxlength="16000"><?php echo request_admin_h($row['reply_text'] ?? ''); ?></textarea>
+                        </div>
+                        <div class="col-md-3">
+                          <div class="form-check form-switch py-1">
+                            <input class="form-check-input" id="replyVisible<?php echo $requestId; ?>" type="checkbox" name="reply_visible_flag" value="1"<?php echo !empty($row['reply_visible_flag']) ? ' checked' : ''; ?>>
+                            <label class="form-check-label" for="replyVisible<?php echo $requestId; ?>">ユーザーに表示する</label>
+                          </div>
+                        </div>
+                        <div class="col-12 d-flex justify-content-end">
+                          <button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-save"></i> 更新</button>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
             </form>

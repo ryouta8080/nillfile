@@ -83,26 +83,83 @@ class RequestPage extends PTUserPage
 			}
 		}
 
+		$attachment = null;
+		try {
+			$attachment = $this->validateRequestAttachmentUpload($setting);
+		} catch (RuntimeException $e) {
+			$errors[] = $e->getMessage();
+		}
+
 		if ($errors) {
 			$this->renderRequestPage($errors, $_POST);
 			return;
 		}
 
 		$model = new RequestIdeaModel();
-		$saved = $model->save([
-			'member_id' => $memberId,
-			'patreon_id' => mb_substr($patreonId, 0, 255, 'UTF-8'),
-			'patron_name' => mb_substr(trim((string)($patreon['name'] ?? '')), 0, 255, 'UTF-8'),
-			'patron_status_at_request' => mb_substr($status, 0, 64, 'UTF-8'),
-			'tier_id_at_request' => mb_substr(trim((string)($patreon['current_tier_id'] ?? '')), 0, 255, 'UTF-8'),
-			'is_paid_at_request' => $isPaid ? 1 : 0,
-			'request_text' => $requestText,
-			'category' => '',
-			'request_type' => $requestType,
-			'is_nsfw' => isset($_POST['is_nsfw']) ? 1 : 0,
-		]);
+		$requestId = 0;
+		$movedPath = '';
+		$transactionError = '';
+		$saved = $model->edit(function() use (
+			$model,
+			$memberId,
+			$patreonId,
+			$patreon,
+			$status,
+			$isPaid,
+			$requestText,
+			$requestType,
+			$attachment,
+			&$requestId,
+			&$movedPath,
+			&$transactionError
+		) {
+			try {
+				$requestId = (int)$model->save([
+					'member_id' => $memberId,
+					'patreon_id' => mb_substr($patreonId, 0, 255, 'UTF-8'),
+					'patron_name' => mb_substr(trim((string)($patreon['name'] ?? '')), 0, 255, 'UTF-8'),
+					'patron_status_at_request' => mb_substr($status, 0, 64, 'UTF-8'),
+					'tier_id_at_request' => mb_substr(trim((string)($patreon['current_tier_id'] ?? '')), 0, 255, 'UTF-8'),
+					'is_paid_at_request' => $isPaid ? 1 : 0,
+					'request_text' => $requestText,
+					'category' => '',
+					'request_type' => $requestType,
+					'is_nsfw' => isset($_POST['is_nsfw']) ? 1 : 0,
+					'attachment_status' => 'none',
+				]);
+				if ($requestId <= 0) {
+					throw new RuntimeException('リクエストの保存に失敗しました。');
+				}
+
+				if ($attachment !== null) {
+					$stored = $this->storeRequestAttachment($requestId, $attachment);
+					$movedPath = $stored['absolute_path'];
+					$attachmentModel = new RequestIdeaModel();
+					$attachmentSaved = $attachmentModel->update([
+						'request_id' => $requestId,
+						'attachment_status' => 'stored',
+						'attachment_path' => $stored['relative_path'],
+						'attachment_mime' => $stored['mime'],
+						'attachment_size' => $stored['size'],
+						'attachment_deleted_datetime' => null,
+					]);
+					if (!$attachmentSaved) {
+						throw new RuntimeException('添付画像情報の保存に失敗しました。');
+					}
+				}
+				return true;
+			} catch (Exception $e) {
+				$transactionError = $e->getMessage();
+				return false;
+			}
+		});
 		if (!$saved) {
-			$this->renderRequestPage(['リクエストの保存に失敗しました。時間をおいて再度お試しください。'], $_POST);
+			if ($movedPath !== '' && is_file($movedPath)) {
+				@unlink($movedPath);
+				@rmdir(dirname($movedPath));
+			}
+			$message = $transactionError ?: 'リクエストの保存に失敗しました。時間をおいて再度お試しください。';
+			$this->renderRequestPage([$message], $_POST);
 			return;
 		}
 
@@ -236,6 +293,8 @@ class RequestPage extends PTUserPage
 			'cooldown_minutes' => 0,
 			'paid_only_flag' => 0,
 			'admin_bypass_flag' => 1,
+			'attachment_enabled_flag' => 1,
+			'attachment_max_size_mb' => 10,
 		];
 		$model = new RequestSettingModel();
 		$result = $model->where('setting_id=?', [1])->select();
@@ -251,6 +310,109 @@ class RequestPage extends PTUserPage
 		if ($enabledOnly) $model->where('enabled_flag=1', []);
 		$result = $model->orderBy('request_type_setting.sort_order, request_type_setting.type_code')->select();
 		return ($result && $result->total > 0) ? $result->data : [];
+	}
+
+	private function validateRequestAttachmentUpload(array $setting): ?array
+	{
+		if (!isset($_FILES['attachment'])) return null;
+		$file = $_FILES['attachment'];
+		if (!is_array($file) || is_array($file['name'] ?? null) || is_array($file['tmp_name'] ?? null)) {
+			throw new RuntimeException('添付できる画像は1枚だけです。');
+		}
+
+		$error = (int)($file['error'] ?? UPLOAD_ERR_NO_FILE);
+		if ($error === UPLOAD_ERR_NO_FILE) return null;
+		if (empty($setting['attachment_enabled_flag'])) {
+			throw new RuntimeException('現在、画像を添付できません。');
+		}
+		if ($error !== UPLOAD_ERR_OK) {
+			if (in_array($error, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+				throw new RuntimeException('添付画像の容量が上限を超えています。');
+			}
+			throw new RuntimeException('添付画像のアップロードに失敗しました。');
+		}
+
+		$tmp = (string)($file['tmp_name'] ?? '');
+		if ($tmp === '' || !is_uploaded_file($tmp)) {
+			throw new RuntimeException('添付画像を確認できませんでした。');
+		}
+
+		$maxSizeMb = max(1, min(50, (int)($setting['attachment_max_size_mb'] ?? 10)));
+		$maxBytes = $maxSizeMb * 1024 * 1024;
+		$size = @filesize($tmp);
+		if ($size === false || $size <= 0) {
+			throw new RuntimeException('添付画像が空です。');
+		}
+		if ($size > $maxBytes) {
+			throw new RuntimeException('添付画像は' . $maxSizeMb . 'MB以内にしてください。');
+		}
+
+		if (!function_exists('finfo_open')) {
+			throw new RuntimeException('サーバーで添付画像の形式を確認できません。');
+		}
+		$finfo = finfo_open(FILEINFO_MIME_TYPE);
+		$mime = $finfo ? (string)finfo_file($finfo, $tmp) : '';
+		if ($finfo) finfo_close($finfo);
+
+		$allowedTypes = [
+			'image/jpeg' => 'jpg',
+			'image/png' => 'png',
+			'image/webp' => 'webp',
+			'image/gif' => 'gif',
+		];
+		if (!isset($allowedTypes[$mime])) {
+			throw new RuntimeException('添付できる形式はJPEG、PNG、WebP、GIFです。');
+		}
+
+		$imageInfo = @getimagesize($tmp);
+		if (!$imageInfo || (int)($imageInfo[0] ?? 0) <= 0 || (int)($imageInfo[1] ?? 0) <= 0) {
+			throw new RuntimeException('添付ファイルは有効な画像ではありません。');
+		}
+		$width = (int)$imageInfo[0];
+		$height = (int)$imageInfo[1];
+		if ($width > 12000 || $height > 12000 || ($width * $height) > 40000000) {
+			throw new RuntimeException('添付画像の縦横サイズが大きすぎます。');
+		}
+
+		return [
+			'tmp_name' => $tmp,
+			'mime' => $mime,
+			'extension' => $allowedTypes[$mime],
+			'size' => (int)$size,
+		];
+	}
+
+	private function storeRequestAttachment(int $requestId, array $attachment): array
+	{
+		$now = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+		$month = $now->format('Ym');
+		$relativeDir = 'request_attachment/' . $month . '/' . $requestId;
+		$absoluteDir = PCPath::systemRoot() . 'app/res/content/' . $relativeDir;
+		if (!is_dir($absoluteDir) && !mkdir($absoluteDir, 0775, true) && !is_dir($absoluteDir)) {
+			throw new RuntimeException('添付画像の保存先を作成できませんでした。');
+		}
+		$storageRoot = realpath(PCPath::systemRoot() . 'app/res/content');
+		$resolvedDir = realpath($absoluteDir);
+		$normalizedRoot = $storageRoot === false ? '' : rtrim(str_replace('\\', '/', $storageRoot), '/') . '/';
+		$normalizedDir = $resolvedDir === false ? '' : rtrim(str_replace('\\', '/', $resolvedDir), '/') . '/';
+		if ($normalizedRoot === '' || $normalizedDir === '' || strpos($normalizedDir, $normalizedRoot) !== 0) {
+			throw new RuntimeException('添付画像の保存先を確認できませんでした。');
+		}
+		$absoluteDir = rtrim($resolvedDir, '/\\');
+
+		$fileName = bin2hex(random_bytes(16)) . '.' . (string)$attachment['extension'];
+		$absolutePath = $absoluteDir . '/' . $fileName;
+		if (!move_uploaded_file((string)$attachment['tmp_name'], $absolutePath)) {
+			@rmdir($absoluteDir);
+			throw new RuntimeException('添付画像を保存できませんでした。');
+		}
+
+		return [
+			'absolute_path' => $absolutePath,
+			'relative_path' => $relativeDir . '/' . $fileName,
+			'mime' => (string)$attachment['mime'],
+			'size' => (int)$attachment['size'],
+		];
 	}
 
 	private function getGlobalRequestRestriction(int $memberId, array $setting): array

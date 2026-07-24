@@ -162,6 +162,12 @@ class AccountPage extends PTUserPage
 						return;
 					}
 					$errors[] = '受付設定の保存に失敗しました。';
+				} elseif ($operation === 'delete_request_attachment') {
+					if ($this->deleteRequestAttachmentAdmin()) {
+						$this->redirect('/account/request?attachment_deleted=1');
+						return;
+					}
+					$errors[] = '添付画像の削除に失敗しました。';
 				} else {
 					$errors[] = '不明な操作です。';
 				}
@@ -224,6 +230,7 @@ class AccountPage extends PTUserPage
 		$infos = [];
 		if (isset($_GET['updated'])) $infos[] = 'リクエストを更新しました。';
 		if (isset($_GET['setting_saved'])) $infos[] = '受付設定を保存しました。';
+		if (isset($_GET['attachment_deleted'])) $infos[] = '添付画像を削除しました。';
 
 		$this->view->rows = $rows;
 		$this->view->contents = ($contentResult && $contentResult->total > 0) ? $contentResult->data : [];
@@ -244,6 +251,61 @@ class AccountPage extends PTUserPage
 		$this->display();
 	}
 
+	public function requestattachmentAction()
+	{
+		if (!$this->member || !$this->util->isAdmin($this->member)) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$requestId = (int)($_GET['request_id'] ?? 0);
+		if ($requestId <= 0) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$model = new RequestIdeaModel();
+		$result = $model->where('request_id=?', [$requestId])->select();
+		if (!$result || $result->total === 0) {
+			$this->displayNotFound();
+			return;
+		}
+		$row = $result->data[0];
+		if ((string)($row['attachment_status'] ?? 'none') !== 'stored') {
+			$this->displayNotFound();
+			return;
+		}
+
+		$filePath = $this->resolveRequestAttachmentPath((string)($row['attachment_path'] ?? ''));
+		if ($filePath === null || !is_file($filePath)) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$mime = '';
+		if (function_exists('finfo_open')) {
+			$finfo = finfo_open(FILEINFO_MIME_TYPE);
+			$mime = $finfo ? (string)finfo_file($finfo, $filePath) : '';
+			if ($finfo) finfo_close($finfo);
+		}
+		if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true)) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$extension = strtolower((string)pathinfo($filePath, PATHINFO_EXTENSION));
+		if (!in_array($extension, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) $extension = 'img';
+		header('Content-Type: ' . $mime);
+		header('Content-Length: ' . filesize($filePath));
+		header('Content-Disposition: inline; filename="request-' . $requestId . '.' . $extension . '"');
+		header('Cache-Control: private, no-store, max-age=0');
+		header('Pragma: no-cache');
+		header('X-Content-Type-Options: nosniff');
+		if (ob_get_level()) @ob_clean();
+		readfile($filePath);
+		return;
+	}
+
 	private function updateRequestAdmin(): bool
 	{
 		$requestId = (int)($_POST['request_id'] ?? 0);
@@ -256,6 +318,7 @@ class AccountPage extends PTUserPage
 			if (!$contentResult || $contentResult->total === 0) $contentId = 0;
 		}
 
+		$replyText = mb_substr(trim((string)($_POST['reply_text'] ?? '')), 0, 16000, 'UTF-8');
 		$model = new RequestIdeaModel();
 		return (bool)$model->update([
 			'request_id' => $requestId,
@@ -264,7 +327,62 @@ class AccountPage extends PTUserPage
 			'hidden_flag' => isset($_POST['hidden_flag']) ? 1 : 0,
 			'admin_memo' => mb_substr(trim((string)($_POST['admin_memo'] ?? '')), 0, 16000, 'UTF-8'),
 			'content_id' => $contentId > 0 ? $contentId : null,
+			'reply_text' => $replyText,
+			'reply_visible_flag' => $replyText !== '' && isset($_POST['reply_visible_flag']) ? 1 : 0,
 		]);
+	}
+
+	private function deleteRequestAttachmentAdmin(): bool
+	{
+		$requestId = (int)($_POST['request_id'] ?? 0);
+		if ($requestId <= 0) return false;
+
+		$model = new RequestIdeaModel();
+		$result = $model->where('request_id=?', [$requestId])->select();
+		if (!$result || $result->total === 0) return false;
+		$row = $result->data[0];
+		if ((string)($row['attachment_status'] ?? 'none') !== 'stored') return false;
+
+		$relativePath = (string)($row['attachment_path'] ?? '');
+		if (!$this->isSafeRequestAttachmentPath($relativePath)) return false;
+		$filePath = $this->resolveRequestAttachmentPath($relativePath);
+		if ($filePath !== null && is_file($filePath) && !@unlink($filePath)) return false;
+
+		$deletedAt = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+		$updateModel = new RequestIdeaModel();
+		$saved = $updateModel->update([
+			'request_id' => $requestId,
+			'attachment_status' => 'deleted',
+			'attachment_path' => null,
+			'attachment_mime' => null,
+			'attachment_size' => null,
+			'attachment_deleted_datetime' => $deletedAt->format('Y-m-d H:i:s'),
+		]);
+		if (!$saved) return false;
+
+		if ($filePath !== null) @rmdir(dirname($filePath));
+		return true;
+	}
+
+	private function isSafeRequestAttachmentPath(string $relativePath): bool
+	{
+		if ($relativePath === '' || strpos($relativePath, '\\') !== false) return false;
+		if (strpos($relativePath, 'request_attachment/') !== 0) return false;
+		if (strpos($relativePath, "\0") !== false) return false;
+		return !preg_match('~(^|/)\.{1,2}(/|$)~', $relativePath);
+	}
+
+	private function resolveRequestAttachmentPath(string $relativePath): ?string
+	{
+		if (!$this->isSafeRequestAttachmentPath($relativePath)) return null;
+		$root = realpath(PCPath::systemRoot() . 'app/res/content');
+		$filePath = realpath(PCPath::systemRoot() . 'app/res/content/' . $relativePath);
+		if ($root === false || $filePath === false) return null;
+
+		$normalizedRoot = rtrim(str_replace('\\', '/', $root), '/') . '/';
+		$normalizedPath = str_replace('\\', '/', $filePath);
+		if (strpos($normalizedPath, $normalizedRoot) !== 0) return null;
+		return $filePath;
 	}
 
 	private function updateRequestAdminFlagResponse(): void
@@ -319,6 +437,7 @@ class AccountPage extends PTUserPage
 		$maxLength = max(1, min(16000, (int)($_POST['max_length'] ?? 2000)));
 		$monthlyLimit = max(0, min(1000, (int)($_POST['monthly_limit'] ?? 0)));
 		$cooldownMinutes = max(0, min(525600, (int)($_POST['cooldown_minutes'] ?? 0)));
+		$attachmentMaxSizeMb = max(1, min(50, (int)($_POST['attachment_max_size_mb'] ?? 10)));
 		$requestTypes = $this->loadRequestTypesAdmin();
 		$enabledCodes = $_POST['request_type_enabled'] ?? [];
 		if (!is_array($enabledCodes)) $enabledCodes = [];
@@ -341,7 +460,7 @@ class AccountPage extends PTUserPage
 		}
 
 		$settingModel = new RequestSettingModel();
-		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $requestTypes, $enabledCodes, $typeLimits) {
+		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $attachmentMaxSizeMb, $requestTypes, $enabledCodes, $typeLimits) {
 			$saved = $settingModel->save([
 				'setting_id' => 1,
 				'accept_flag' => isset($_POST['accept_flag']) ? 1 : 0,
@@ -352,6 +471,8 @@ class AccountPage extends PTUserPage
 				'cooldown_minutes' => $cooldownMinutes,
 				'paid_only_flag' => isset($_POST['paid_only_flag']) ? 1 : 0,
 				'admin_bypass_flag' => isset($_POST['admin_bypass_flag']) ? 1 : 0,
+				'attachment_enabled_flag' => isset($_POST['attachment_enabled_flag']) ? 1 : 0,
+				'attachment_max_size_mb' => $attachmentMaxSizeMb,
 			]);
 			if (!$saved) return false;
 
@@ -392,6 +513,8 @@ class AccountPage extends PTUserPage
 			'cooldown_minutes' => 0,
 			'paid_only_flag' => 0,
 			'admin_bypass_flag' => 1,
+			'attachment_enabled_flag' => 1,
+			'attachment_max_size_mb' => 10,
 		];
 		$model = new RequestSettingModel();
 		$result = $model->where('setting_id=?', [1])->select();

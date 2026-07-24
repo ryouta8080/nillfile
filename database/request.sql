@@ -10,6 +10,11 @@ CREATE TABLE request_idea (
   category VARCHAR(64) NULL,
   request_type VARCHAR(32) NOT NULL DEFAULT 'other',
   is_nsfw TINYINT NOT NULL DEFAULT 0,
+  attachment_status VARCHAR(16) NOT NULL DEFAULT 'none',
+  attachment_path VARCHAR(512) NULL,
+  attachment_mime VARCHAR(64) NULL,
+  attachment_size BIGINT UNSIGNED NULL,
+  attachment_deleted_datetime DATETIME NULL,
   favorite_flag TINYINT NOT NULL DEFAULT 0,
   done_flag TINYINT NOT NULL DEFAULT 0,
   withdrawn_flag TINYINT NOT NULL DEFAULT 0,
@@ -25,6 +30,7 @@ CREATE TABLE request_idea (
   PRIMARY KEY (request_id),
   KEY idx_request_idea_member_date (member_id, reg_datetime),
   KEY idx_request_idea_member_type_date (member_id, request_type, reg_datetime),
+  KEY idx_request_idea_attachment (attachment_status, reg_datetime),
   KEY idx_request_idea_admin (done_flag, favorite_flag, withdrawn_flag, hidden_flag, reg_datetime),
   KEY idx_request_idea_content_id (content_id),
   KEY idx_request_idea_del_flag (del_flag)
@@ -40,6 +46,8 @@ CREATE TABLE request_setting (
   cooldown_minutes INT UNSIGNED NOT NULL DEFAULT 0,
   paid_only_flag TINYINT NOT NULL DEFAULT 0,
   admin_bypass_flag TINYINT NOT NULL DEFAULT 1,
+  attachment_enabled_flag TINYINT NOT NULL DEFAULT 1,
+  attachment_max_size_mb INT UNSIGNED NOT NULL DEFAULT 10,
   del_flag TINYINT NOT NULL DEFAULT 0,
   upd_datetime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   reg_datetime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -71,7 +79,9 @@ INSERT INTO request_setting (
   monthly_limit,
   cooldown_minutes,
   paid_only_flag,
-  admin_bypass_flag
+  admin_bypass_flag,
+  attachment_enabled_flag,
+  attachment_max_size_mb
 ) VALUES (
   1,
   1,
@@ -81,7 +91,9 @@ INSERT INTO request_setting (
   0,
   0,
   0,
-  1
+  1,
+  1,
+  10
 );
 
 INSERT INTO request_type_setting (
