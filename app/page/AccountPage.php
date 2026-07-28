@@ -204,6 +204,7 @@ class AccountPage extends PTUserPage
 			->limit(($page - 1) * $perPage, $perPage);
 		$result = $model->select();
 		$rows = ($result && $result->total > 0) ? $result->data : [];
+		$rows = $this->loadRequestAdminMetadata($rows);
 
 		$newRequestIds = [];
 		foreach ($rows as $row) {
@@ -251,6 +252,129 @@ class AccountPage extends PTUserPage
 		$this->display();
 	}
 
+	private function loadRequestAdminMetadata(array $rows): array
+	{
+		if (!$rows) return [];
+
+		$requestIds = [];
+		$memberIds = [];
+		foreach ($rows as $row) {
+			$requestIds[] = (int)$row['request_id'];
+			$memberIds[] = (int)$row['member_id'];
+		}
+		$requestIds = array_values(array_unique(array_filter($requestIds)));
+		$memberIds = array_values(array_unique(array_filter($memberIds)));
+
+		$attachmentsByRequest = [];
+		if ($requestIds) {
+			$attachmentModel = new RequestAttachmentModel();
+			$attachmentResult = $attachmentModel
+				->whereIn('request_id', $requestIds)
+				->orderBy('request_attachment.request_id, request_attachment.sort_order, request_attachment.attachment_id')
+				->select();
+			if ($attachmentResult && $attachmentResult->total > 0) {
+				foreach ($attachmentResult->data as $attachment) {
+					$attachmentRequestId = (int)$attachment['request_id'];
+					if (!isset($attachmentsByRequest[$attachmentRequestId])) {
+						$attachmentsByRequest[$attachmentRequestId] = [];
+					}
+					$attachment['legacy_flag'] = 0;
+					$attachmentsByRequest[$attachmentRequestId][] = $attachment;
+				}
+			}
+		}
+
+		$lastRequestByMember = [];
+		if ($memberIds) {
+			$lastRequestModel = new RequestIdeaModel();
+			$lastRequestResult = $lastRequestModel
+				->setCol(['member_id'])
+				->addCol('max(request_idea.reg_datetime)', 'last_request_datetime')
+				->whereIn('member_id', $memberIds)
+				->groupBy(['member_id'])
+				->select();
+			if ($lastRequestResult && $lastRequestResult->total > 0) {
+				foreach ($lastRequestResult->data as $lastRequestRow) {
+					$lastRequestByMember[(int)$lastRequestRow['member_id']] = (string)$lastRequestRow['last_request_datetime'];
+				}
+			}
+		}
+
+		$now = new DateTimeImmutable('now', new DateTimeZone('Asia/Tokyo'));
+		foreach ($rows as &$row) {
+			$requestId = (int)$row['request_id'];
+			$row['attachments'] = $attachmentsByRequest[$requestId] ?? [];
+			if (!$row['attachments'] && in_array((string)($row['attachment_status'] ?? 'none'), ['stored', 'deleted'], true)) {
+				$row['attachments'][] = [
+					'attachment_id' => 0,
+					'request_id' => $requestId,
+					'sort_order' => 1,
+					'attachment_status' => (string)$row['attachment_status'],
+					'storage_path' => $row['attachment_path'] ?? null,
+					'mime_type' => $row['attachment_mime'] ?? null,
+					'file_size' => $row['attachment_size'] ?? null,
+					'deleted_datetime' => $row['attachment_deleted_datetime'] ?? null,
+					'legacy_flag' => 1,
+				];
+			}
+
+			$lastRequestDatetime = $lastRequestByMember[(int)$row['member_id']] ?? (string)($row['reg_datetime'] ?? '');
+			$row['last_request_datetime'] = $lastRequestDatetime;
+			$row['last_request_elapsed_days'] = 0;
+			if ($lastRequestDatetime !== '') {
+				try {
+					$lastRequestAt = new DateTimeImmutable($lastRequestDatetime, new DateTimeZone('Asia/Tokyo'));
+					if ($lastRequestAt < $now) {
+						$row['last_request_elapsed_days'] = (int)$lastRequestAt->diff($now)->format('%a');
+					}
+				} catch (Exception $e) {
+					$row['last_request_elapsed_days'] = 0;
+				}
+			}
+		}
+		unset($row);
+
+		return $rows;
+	}
+
+	private function loadRequestAttachment(array $requestRow, int $attachmentId): ?array
+	{
+		$requestId = (int)($requestRow['request_id'] ?? 0);
+		if ($requestId <= 0) return null;
+
+		if ($attachmentId > 0) {
+			$model = new RequestAttachmentModel();
+			$result = $model
+				->where('attachment_id=? and request_id=?', [$attachmentId, $requestId])
+				->select();
+			return ($result && $result->total > 0) ? $result->data[0] : null;
+		}
+
+		if (
+			(string)($requestRow['attachment_status'] ?? 'none') === 'stored'
+			&& (string)($requestRow['attachment_path'] ?? '') !== ''
+		) {
+			return [
+				'attachment_id' => 0,
+				'request_id' => $requestId,
+				'sort_order' => 1,
+				'attachment_status' => 'stored',
+				'storage_path' => (string)$requestRow['attachment_path'],
+				'mime_type' => $requestRow['attachment_mime'] ?? null,
+				'file_size' => $requestRow['attachment_size'] ?? null,
+				'legacy_flag' => 1,
+			];
+		}
+
+		$model = new RequestAttachmentModel();
+		$result = $model
+			->where('request_id=? and attachment_status=?', [$requestId, 'stored'])
+			->orderBy('request_attachment.sort_order, request_attachment.attachment_id')
+			->limit(1)
+			->select();
+		return ($result && $result->total > 0) ? $result->data[0] : null;
+	}
+
 	public function requestattachmentAction()
 	{
 		if (!$this->member || !$this->util->isAdmin($this->member)) {
@@ -259,6 +383,7 @@ class AccountPage extends PTUserPage
 		}
 
 		$requestId = (int)($_GET['request_id'] ?? 0);
+		$attachmentId = (int)($_GET['attachment_id'] ?? 0);
 		if ($requestId <= 0) {
 			$this->displayNotFound();
 			return;
@@ -271,12 +396,14 @@ class AccountPage extends PTUserPage
 			return;
 		}
 		$row = $result->data[0];
-		if ((string)($row['attachment_status'] ?? 'none') !== 'stored') {
+
+		$attachment = $this->loadRequestAttachment($row, $attachmentId);
+		if ($attachment === null || (string)($attachment['attachment_status'] ?? 'none') !== 'stored') {
 			$this->displayNotFound();
 			return;
 		}
 
-		$filePath = $this->resolveRequestAttachmentPath((string)($row['attachment_path'] ?? ''));
+		$filePath = $this->resolveRequestAttachmentPath((string)($attachment['storage_path'] ?? ''));
 		if ($filePath === null || !is_file($filePath)) {
 			$this->displayNotFound();
 			return;
@@ -295,9 +422,10 @@ class AccountPage extends PTUserPage
 
 		$extension = strtolower((string)pathinfo($filePath, PATHINFO_EXTENSION));
 		if (!in_array($extension, ['jpg', 'jpeg', 'png', 'webp', 'gif'], true)) $extension = 'img';
+		$fileNumber = max(1, (int)($attachment['sort_order'] ?? 1));
 		header('Content-Type: ' . $mime);
 		header('Content-Length: ' . filesize($filePath));
-		header('Content-Disposition: inline; filename="request-' . $requestId . '.' . $extension . '"');
+		header('Content-Disposition: inline; filename="request-' . $requestId . '-' . $fileNumber . '.' . $extension . '"');
 		header('Cache-Control: private, no-store, max-age=0');
 		header('Pragma: no-cache');
 		header('X-Content-Type-Options: nosniff');
@@ -335,12 +463,80 @@ class AccountPage extends PTUserPage
 	private function deleteRequestAttachmentAdmin(): bool
 	{
 		$requestId = (int)($_POST['request_id'] ?? 0);
+		$attachmentId = (int)($_POST['attachment_id'] ?? 0);
 		if ($requestId <= 0) return false;
 
 		$model = new RequestIdeaModel();
 		$result = $model->where('request_id=?', [$requestId])->select();
 		if (!$result || $result->total === 0) return false;
 		$row = $result->data[0];
+
+		if ($attachmentId > 0) {
+			$attachmentModel = new RequestAttachmentModel();
+			$attachmentResult = $attachmentModel
+				->where('attachment_id=? and request_id=?', [$attachmentId, $requestId])
+				->select();
+			if (!$attachmentResult || $attachmentResult->total === 0) return false;
+			$attachment = $attachmentResult->data[0];
+			if ((string)($attachment['attachment_status'] ?? 'none') !== 'stored') return false;
+
+			$relativePath = (string)($attachment['storage_path'] ?? '');
+			if (!$this->isSafeRequestAttachmentPath($relativePath)) return false;
+			$filePath = $this->resolveRequestAttachmentPath($relativePath);
+			if ($filePath !== null && is_file($filePath) && !@unlink($filePath)) return false;
+
+			$remainingModel = new RequestAttachmentModel();
+			$remainingStored = (int)($remainingModel
+				->where('request_id=? and attachment_status=? and attachment_id<>?', [$requestId, 'stored', $attachmentId])
+				->count() ?: 0);
+			$legacyPath = (string)($row['attachment_path'] ?? '');
+			$legacyRemains = (string)($row['attachment_status'] ?? 'none') === 'stored'
+				&& $legacyPath !== ''
+				&& $legacyPath !== $relativePath;
+			$parentStatus = ($remainingStored > 0 || $legacyRemains) ? 'stored' : 'deleted';
+			$deletedAt = new DateTime('now', new DateTimeZone('Asia/Tokyo'));
+			$transactionModel = new RequestAttachmentModel();
+			$saved = $transactionModel->edit(function() use (
+				$attachmentId,
+				$requestId,
+				$relativePath,
+				$legacyPath,
+				$parentStatus,
+				$deletedAt
+			) {
+				$childModel = new RequestAttachmentModel();
+				if (!$childModel->update([
+					'attachment_id' => $attachmentId,
+					'attachment_status' => 'deleted',
+					'storage_path' => null,
+					'mime_type' => null,
+					'file_size' => null,
+					'deleted_datetime' => $deletedAt->format('Y-m-d H:i:s'),
+				])) {
+					return false;
+				}
+
+				$parentData = [
+					'request_id' => $requestId,
+					'attachment_status' => $parentStatus,
+				];
+				if ($legacyPath === $relativePath) {
+					$parentData['attachment_path'] = null;
+					$parentData['attachment_mime'] = null;
+					$parentData['attachment_size'] = null;
+				}
+				if ($parentStatus === 'deleted') {
+					$parentData['attachment_deleted_datetime'] = $deletedAt->format('Y-m-d H:i:s');
+				}
+				$parentModel = new RequestIdeaModel();
+				return (bool)$parentModel->update($parentData);
+			});
+			if (!$saved) return false;
+
+			if ($filePath !== null) @rmdir(dirname($filePath));
+			return true;
+		}
+
 		if ((string)($row['attachment_status'] ?? 'none') !== 'stored') return false;
 
 		$relativePath = (string)($row['attachment_path'] ?? '');

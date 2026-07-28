@@ -13,5 +13,6 @@ require_once 'MemberPatreonModel.php';
 require_once 'ContentItemModel.php';
 require_once 'ContentFileModel.php';
 require_once 'RequestIdeaModel.php';
+require_once 'RequestAttachmentModel.php';
 require_once 'RequestSettingModel.php';
 require_once 'RequestTypeSettingModel.php';

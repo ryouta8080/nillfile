@@ -36,6 +36,24 @@ CREATE TABLE request_idea (
   KEY idx_request_idea_del_flag (del_flag)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE request_attachment (
+  attachment_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  request_id BIGINT UNSIGNED NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 1,
+  attachment_status VARCHAR(16) NOT NULL DEFAULT 'stored',
+  storage_path VARCHAR(512) NULL,
+  mime_type VARCHAR(64) NULL,
+  file_size BIGINT UNSIGNED NULL,
+  deleted_datetime DATETIME NULL,
+  del_flag TINYINT NOT NULL DEFAULT 0,
+  upd_datetime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  reg_datetime DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (attachment_id),
+  UNIQUE KEY uq_request_attachment_order (request_id, sort_order),
+  KEY idx_request_attachment_request (request_id, attachment_status),
+  KEY idx_request_attachment_del_flag (del_flag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE request_setting (
   setting_id INT UNSIGNED NOT NULL,
   accept_flag TINYINT NOT NULL DEFAULT 1,

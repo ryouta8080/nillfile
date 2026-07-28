@@ -65,6 +65,35 @@ $this->load($this->getViewPath() . 'header.phtml');
   padding: 0.75rem;
   white-space: pre-wrap;
 }
+.request-attachment-preview-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 128px));
+}
+.request-attachment-preview-item {
+  aspect-ratio: 1;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.request-attachment-preview-item img {
+  display: block;
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+.request-attachment-preview-number {
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 0.75rem;
+  left: 0.25rem;
+  line-height: 1;
+  padding: 0.25rem;
+  position: absolute;
+  top: 0.25rem;
+}
 </style>
 
 <main class="container py-4" style="max-width: 960px;">
@@ -129,12 +158,12 @@ $this->load($this->getViewPath() . 'header.phtml');
           <?php if ($attachmentEnabled): ?>
             <div class="col-12">
               <label class="form-label" for="requestAttachment">画像を添付（任意）</label>
-              <input class="form-control" id="requestAttachment" type="file" name="attachment" accept="image/jpeg,image/png,image/webp,image/gif">
-              <div class="form-text">1枚まで。JPEG・PNG・WebP・GIF、<?php echo $attachmentMaxSizeMb; ?>MBまで</div>
-              <div class="align-items-start gap-2 mt-2 d-none" id="requestAttachmentPreview">
-                <img class="border rounded" id="requestAttachmentPreviewImage" alt="添付画像のプレビュー" style="display:block; max-height:180px; max-width:min(100%, 320px); object-fit:contain;">
-                <button class="btn btn-sm btn-outline-secondary" id="requestAttachmentRemove" type="button" title="添付画像を解除">
-                  <i class="bi bi-x-lg"></i>
+              <input class="form-control" id="requestAttachment" type="file" name="attachments[]" accept="image/jpeg,image/png,image/webp,image/gif" multiple>
+              <div class="form-text">最大4枚。JPEG・PNG・WebP・GIF、1枚あたり<?php echo $attachmentMaxSizeMb; ?>MBまで</div>
+              <div class="mt-2 d-none" id="requestAttachmentPreview">
+                <div class="request-attachment-preview-grid mb-2" id="requestAttachmentPreviewGrid"></div>
+                <button class="btn btn-sm btn-outline-secondary" id="requestAttachmentRemove" type="button">
+                  <i class="bi bi-x-lg"></i> 選択を解除
                 </button>
               </div>
             </div>
@@ -275,50 +304,70 @@ $this->load($this->getViewPath() . 'header.phtml');
 
   var attachmentInput = document.getElementById('requestAttachment');
   var attachmentPreview = document.getElementById('requestAttachmentPreview');
-  var attachmentPreviewImage = document.getElementById('requestAttachmentPreviewImage');
+  var attachmentPreviewGrid = document.getElementById('requestAttachmentPreviewGrid');
   var attachmentRemove = document.getElementById('requestAttachmentRemove');
-  var attachmentObjectUrl = '';
+  var attachmentObjectUrls = [];
   var attachmentMaxBytes = <?php echo $attachmentMaxSizeMb * 1024 * 1024; ?>;
   var attachmentMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
-  function clearAttachment(clearInput){
+  function clearAttachments(clearInput){
     if (!attachmentInput) return;
     if (clearInput !== false) attachmentInput.value = '';
     attachmentInput.setCustomValidity('');
-    if (attachmentObjectUrl) URL.revokeObjectURL(attachmentObjectUrl);
-    attachmentObjectUrl = '';
-    if (attachmentPreviewImage) attachmentPreviewImage.removeAttribute('src');
-    if (attachmentPreview) {
-      attachmentPreview.classList.add('d-none');
-      attachmentPreview.classList.remove('d-flex');
-    }
+    attachmentObjectUrls.forEach(function(url){ URL.revokeObjectURL(url); });
+    attachmentObjectUrls = [];
+    if (attachmentPreviewGrid) attachmentPreviewGrid.replaceChildren();
+    if (attachmentPreview) attachmentPreview.classList.add('d-none');
+  }
+
+  function showAttachmentPreviews(files){
+    if (!attachmentPreview || !attachmentPreviewGrid) return;
+    files.forEach(function(file, index){
+      var item = document.createElement('div');
+      item.className = 'request-attachment-preview-item';
+      var image = document.createElement('img');
+      var number = document.createElement('span');
+      var objectUrl = URL.createObjectURL(file);
+      attachmentObjectUrls.push(objectUrl);
+      image.src = objectUrl;
+      image.alt = '添付画像 ' + (index + 1) + ' のプレビュー';
+      number.className = 'request-attachment-preview-number';
+      number.textContent = String(index + 1);
+      item.appendChild(image);
+      item.appendChild(number);
+      attachmentPreviewGrid.appendChild(item);
+    });
+    attachmentPreview.classList.remove('d-none');
   }
 
   if (attachmentInput) {
     attachmentInput.addEventListener('change', function(){
-      var file = attachmentInput.files && attachmentInput.files[0] ? attachmentInput.files[0] : null;
-      clearAttachment(false);
-      if (!file) return;
-      if (attachmentMimeTypes.indexOf(file.type) === -1) {
-        alert('JPEG、PNG、WebP、GIFを選択してください。');
-        clearAttachment(true);
+      var files = Array.from(attachmentInput.files || []);
+      clearAttachments(false);
+      if (!files.length) return;
+      if (files.length > 4) {
+        alert('添付できる画像は4枚までです。');
+        clearAttachments(true);
         return;
       }
-      if (file.size > attachmentMaxBytes) {
-        alert('画像の容量が上限を超えています。');
-        clearAttachment(true);
-        return;
+      for (var i = 0; i < files.length; i++) {
+        if (attachmentMimeTypes.indexOf(files[i].type) === -1) {
+          alert('JPEG、PNG、WebP、GIFを選択してください。');
+          clearAttachments(true);
+          return;
+        }
+        if (files[i].size > attachmentMaxBytes) {
+          alert('画像の容量が上限を超えています。');
+          clearAttachments(true);
+          return;
+        }
       }
+
       attachmentInput.setCustomValidity('');
-      attachmentObjectUrl = URL.createObjectURL(file);
-      if (attachmentPreviewImage) attachmentPreviewImage.src = attachmentObjectUrl;
-      if (attachmentPreview) {
-        attachmentPreview.classList.remove('d-none');
-        attachmentPreview.classList.add('d-flex');
-      }
+      showAttachmentPreviews(files);
     });
   }
-  if (attachmentRemove) attachmentRemove.addEventListener('click', function(){ clearAttachment(true); });
+  if (attachmentRemove) attachmentRemove.addEventListener('click', function(){ clearAttachments(true); });
 
   form.addEventListener('submit', function(event){
     event.preventDefault();
@@ -332,7 +381,8 @@ $this->load($this->getViewPath() . 'header.phtml');
     var selectedType = type && type.selectedOptions.length ? type.selectedOptions[0].textContent : '';
     document.getElementById('requestConfirmType').textContent = selectedType;
     document.getElementById('requestConfirmNsfw').textContent = nsfw && nsfw.checked ? '希望する' : '希望しない';
-    document.getElementById('requestConfirmAttachment').textContent = attachmentInput && attachmentInput.files.length ? 'あり' : 'なし';
+    var attachmentCount = attachmentInput ? attachmentInput.files.length : 0;
+    document.getElementById('requestConfirmAttachment').textContent = attachmentCount ? attachmentCount + '枚' : 'なし';
     document.getElementById('requestConfirmText').textContent = input ? input.value : '';
     bootstrap.Modal.getOrCreateInstance(modalElement).show();
   });
