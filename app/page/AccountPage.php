@@ -301,6 +301,23 @@ class AccountPage extends PTUserPage
 		}
 
 		$now = new DateTimeImmutable('now', new DateTimeZone('Asia/Tokyo'));
+		$currentMonthCountByMember = [];
+		if ($memberIds) {
+			$currentMonthModel = new RequestIdeaModel();
+			$currentMonthResult = $currentMonthModel
+				->setCol(['member_id'])
+				->addCol('count(*)', 'current_month_request_count')
+				->whereIn('member_id', $memberIds)
+				->where('reg_datetime>=?', [$now->format('Y-m-01 00:00:00')])
+				->groupBy(['member_id'])
+				->select();
+			if ($currentMonthResult && $currentMonthResult->total > 0) {
+				foreach ($currentMonthResult->data as $currentMonthRow) {
+					$currentMonthCountByMember[(int)$currentMonthRow['member_id']] = (int)$currentMonthRow['current_month_request_count'];
+				}
+			}
+		}
+
 		foreach ($rows as &$row) {
 			$requestId = (int)$row['request_id'];
 			$row['attachments'] = $attachmentsByRequest[$requestId] ?? [];
@@ -321,6 +338,7 @@ class AccountPage extends PTUserPage
 			$lastRequestDatetime = $lastRequestByMember[(int)$row['member_id']] ?? (string)($row['reg_datetime'] ?? '');
 			$row['last_request_datetime'] = $lastRequestDatetime;
 			$row['last_request_elapsed_days'] = 0;
+			$row['current_month_request_count'] = $currentMonthCountByMember[(int)$row['member_id']] ?? 0;
 			if ($lastRequestDatetime !== '') {
 				try {
 					$lastRequestAt = new DateTimeImmutable($lastRequestDatetime, new DateTimeZone('Asia/Tokyo'));

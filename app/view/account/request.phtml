@@ -351,6 +351,7 @@ $this->load($this->getViewPath() . 'header.phtml');
               <span>状態: <?php echo request_admin_h($row['patron_status_at_request'] ?: '-'); ?></span>
               <span>Tier ID: <?php echo request_admin_h($row['tier_id_at_request'] ?: '-'); ?></span>
               <span title="最新: <?php echo request_admin_h($row['last_request_datetime'] ?? ''); ?>">最終リクエストから <?php echo number_format((int)($row['last_request_elapsed_days'] ?? 0)); ?>日</span>
+              <span>今月のリクエスト: <?php echo number_format((int)($row['current_month_request_count'] ?? 0)); ?>件</span>
             </div>
             <div class="request-admin-text"><?php echo request_admin_h($row['request_text'] ?? ''); ?></div>
 
