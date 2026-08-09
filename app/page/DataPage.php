@@ -557,10 +557,13 @@ class DataPage extends PTUserPage
 	public function contentzipAction()
 	{
 		if(!$this->member){
-			return $this->notfoundAction();
+			$this->rememberContentZipLoginReturn();
+			$this->redirect($this->util->getLoginUrl());
+			return;
 		}
 
-		if(!$this->checkContentZipReferer()){
+		$oauthReturn = $this->consumeContentZipLoginReturn();
+		if(!$oauthReturn && !$this->checkContentZipReferer()){
 			$this->displayNotFound();
 			return;
 		}
@@ -625,6 +628,29 @@ class DataPage extends PTUserPage
 		readfile($tmp);
 		@unlink($tmp);
 		return;
+	}
+
+	protected function rememberContentZipLoginReturn(): void
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		$_SESSION['content_zip_login_return'] = [
+			'uri' => (string)($_SERVER['REQUEST_URI'] ?? ''),
+			'expires_at' => time() + 600,
+		];
+	}
+
+	protected function consumeContentZipLoginReturn(): bool
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		$return = $_SESSION['content_zip_login_return'] ?? null;
+		unset($_SESSION['content_zip_login_return']);
+		if (!is_array($return) || (int)($return['expires_at'] ?? 0) < time()) {
+			return false;
+		}
+
+		$expectedUri = (string)($return['uri'] ?? '');
+		$currentUri = (string)($_SERVER['REQUEST_URI'] ?? '');
+		return $expectedUri !== '' && hash_equals($expectedUri, $currentUri);
 	}
 
 	protected function checkContentZipReferer(): bool
