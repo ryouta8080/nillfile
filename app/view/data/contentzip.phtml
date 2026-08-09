@@ -1,5 +1,5 @@
 <?php
-$contentTitle = (string)($this->view->contentTitle ?? '');
+$downloadFileName = (string)($this->view->downloadFileName ?? '');
 $downloadUrl = (string)($this->view->downloadUrl ?? '');
 if (!function_exists('content_zip_h')) {
     function content_zip_h($value): string {
@@ -44,25 +44,21 @@ if (!function_exists('content_zip_h')) {
     font-size: 24px;
     margin: 0 0 10px;
   }
-  .content-title {
-    color: #57606a;
-    font-size: 15px;
-    margin: 0 0 24px;
+  .file-name {
+    background: #fff;
+    border: 1px solid #d0d7de;
+    border-radius: 4px;
+    color: #24292f;
+    font-size: 14px;
+    margin: 0 0 20px;
     overflow-wrap: anywhere;
+    padding: 10px 12px;
   }
-  .status {
-    align-items: center;
-    display: flex;
-    gap: 10px;
+  .download-help {
+    color: #57606a;
+    font-size: 14px;
+    line-height: 1.7;
     margin-bottom: 24px;
-  }
-  .spinner {
-    animation: spin 0.8s linear infinite;
-    border: 2px solid #d0d7de;
-    border-radius: 50%;
-    border-top-color: #0d6efd;
-    height: 18px;
-    width: 18px;
   }
   .download-button {
     align-items: center;
@@ -82,7 +78,6 @@ if (!function_exists('content_zip_h')) {
     background: #0b5ed7;
     border-color: #0a58ca;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
   @media (max-width: 575px) {
     main { padding-top: 64px; }
     h1 { font-size: 21px; }
@@ -93,26 +88,19 @@ if (!function_exists('content_zip_h')) {
 <body>
 <main>
   <div class="download-icon" aria-hidden="true">ZIP</div>
-  <h1>認証が完了しました</h1>
-  <?php if ($contentTitle !== ''): ?>
-    <p class="content-title"><?php echo content_zip_h($contentTitle); ?></p>
+  <h1>ZIPダウンロードを開始しました</h1>
+  <?php if ($downloadFileName !== ''): ?>
+    <div class="file-name"><?php echo content_zip_h($downloadFileName); ?></div>
   <?php endif; ?>
-  <div class="status" id="downloadStatus" role="status">
-    <span class="spinner" aria-hidden="true"></span>
-    <span>ZIPダウンロードを開始しています</span>
-  </div>
+  <p class="download-help">しばらく待ってもダウンロードが開始しない場合は、以下のリンクを押してください。</p>
   <a class="download-button" id="downloadButton" href="<?php echo content_zip_h($downloadUrl); ?>">ZIPをダウンロード</a>
 </main>
 <script>
 (function(){
   var downloadUrl = <?php echo json_encode($downloadUrl, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
-  var status = document.getElementById('downloadStatus');
   if (!downloadUrl) return;
   window.setTimeout(function(){
     window.location.assign(downloadUrl);
-    window.setTimeout(function(){
-      if (status) status.lastElementChild.textContent = 'ZIPダウンロードを開始しました';
-    }, 1000);
   }, 400);
 })();
 </script>

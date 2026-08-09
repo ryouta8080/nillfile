@@ -610,7 +610,11 @@ class DataPage extends PTUserPage
 				$this->configLoadErrorAction();
 				return;
 			}
-			$this->view->contentTitle = (string)($rows[0]['title'] ?? ('content-' . $contentId));
+			$this->view->downloadFileName = $this->buildSafeZipFileName(
+				(string)($rows[0]['title'] ?? ('content-' . $contentId)),
+				$contentId,
+				(string)($rows[0]['reg_datetime'] ?? '')
+			);
 			$this->view->downloadUrl = '/data/contentzipdownload?t=' . rawurlencode($downloadToken);
 			$this->view->title = 'ZIPダウンロード';
 			$this->setTemplatePath('data/contentzip.phtml');
