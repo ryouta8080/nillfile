@@ -604,6 +604,75 @@ class DataPage extends PTUserPage
 			return;
 		}
 
+		if ($oauthReturn) {
+			$downloadToken = $this->issueContentZipDownloadToken($contentId, $key);
+			if ($downloadToken === '') {
+				$this->configLoadErrorAction();
+				return;
+			}
+			$this->view->contentTitle = (string)($rows[0]['title'] ?? ('content-' . $contentId));
+			$this->view->downloadUrl = '/data/contentzipdownload?t=' . rawurlencode($downloadToken);
+			$this->view->title = 'ZIPダウンロード';
+			$this->setTemplatePath('data/contentzip.phtml');
+			header('Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0');
+			header('Pragma: no-cache');
+			$this->display();
+			return;
+		}
+
+		$this->sendContentV2Zip($rows, $contentId);
+		return;
+	}
+
+	public function contentzipdownloadAction()
+	{
+		if (!$this->member) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$post = $this->getGet(
+			PCF::useParam()
+			->set('t', null, PCV::vString(), PCV::vMaxLength(128))
+		);
+		$tokenData = $this->loadContentZipDownloadToken((string)$post['t']);
+		if ($tokenData === null) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$contentId = (int)$tokenData['content_id'];
+		$key = (string)$tokenData['key'];
+		$rows = $this->loadContentV2ZipRows($contentId);
+		if (!$rows) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$keyOk = false;
+		foreach ($rows as $row) {
+			if (hash_equals((string)($row['file_key'] ?? ''), $key)) {
+				$keyOk = true;
+				break;
+			}
+		}
+		if (!$keyOk) {
+			$this->displayNotFound();
+			return;
+		}
+
+		$contentConfig = $this->buildContentV2ConfigFromZipRow($rows[0]);
+		if (!$this->checkPermision($contentConfig)) {
+			$this->displayNoPermision();
+			return;
+		}
+
+		$this->sendContentV2Zip($rows, $contentId);
+		return;
+	}
+
+	protected function sendContentV2Zip(array $rows, int $contentId): void
+	{
 		$tmp = $this->createContentV2Zip($rows);
 		if ($tmp === false) {
 			$this->configLoadErrorAction();
@@ -627,7 +696,48 @@ class DataPage extends PTUserPage
 		flush();
 		readfile($tmp);
 		@unlink($tmp);
-		return;
+	}
+
+	protected function issueContentZipDownloadToken(int $contentId, string $key): string
+	{
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		$tokens = isset($_SESSION['content_zip_download_tokens']) && is_array($_SESSION['content_zip_download_tokens'])
+			? $_SESSION['content_zip_download_tokens']
+			: [];
+		$now = time();
+		foreach ($tokens as $storedToken => $data) {
+			if (!is_array($data) || (int)($data['expires_at'] ?? 0) < $now) unset($tokens[$storedToken]);
+		}
+
+		try {
+			$token = bin2hex(random_bytes(24));
+		} catch (Exception $e) {
+			return '';
+		}
+		$tokens[$token] = [
+			'content_id' => $contentId,
+			'key' => $key,
+			'expires_at' => $now + 600,
+		];
+		while (count($tokens) > 10) array_shift($tokens);
+		$_SESSION['content_zip_download_tokens'] = $tokens;
+		return $token;
+	}
+
+	protected function loadContentZipDownloadToken(string $token): ?array
+	{
+		if (!preg_match('/^[a-f0-9]{48}$/D', $token)) return null;
+		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+		$tokens = isset($_SESSION['content_zip_download_tokens']) && is_array($_SESSION['content_zip_download_tokens'])
+			? $_SESSION['content_zip_download_tokens']
+			: [];
+		$data = $tokens[$token] ?? null;
+		if (!is_array($data) || (int)($data['expires_at'] ?? 0) < time()) {
+			unset($tokens[$token]);
+			$_SESSION['content_zip_download_tokens'] = $tokens;
+			return null;
+		}
+		return $data;
 	}
 
 	protected function rememberContentZipLoginReturn(): void
