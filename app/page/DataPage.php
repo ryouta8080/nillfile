@@ -110,6 +110,16 @@ class DataPage extends PTUserPage
 				$this->view->embed    = $baseEmbedUrl;
 				$this->view->video    = $baseFileUrl;
 				$this->view->download = $baseDownloadUrl;
+				if (!empty($fileConfig['v2'])) {
+					$playlist = $this->buildContentV2VideoPlaylist(
+						(int)($fileConfig['content_id'] ?? 0),
+						(int)($fileConfig['file_id'] ?? 0),
+						$host
+					);
+					if ($playlist) {
+						$this->view->videoPlaylist = $playlist;
+					}
+				}
 				break;
 
 			case 'image':
@@ -221,6 +231,123 @@ class DataPage extends PTUserPage
 		
 		$this->display();
 	}
+	protected function buildContentV2VideoPlaylist(int $currentContentId, int $currentFileId, string $host): array
+	{
+		if ($currentContentId <= 0 || $currentFileId <= 0) {
+			return [];
+		}
+
+		try {
+			$fileModel = new ContentFileModel();
+			$itemModel = new ContentItemModel();
+			$fileModel->setCol([
+				'file_id',
+				'content_id',
+				'file_type',
+				'code',
+				'file_key',
+				'original_name',
+				'display_name',
+				'mime_type',
+				'sort_order',
+			]);
+			$itemModel->setCol([
+				'title',
+				'description',
+				'plan',
+				'status',
+				'publish_start_at',
+				'publish_end_at',
+				'sort_order',
+				'reg_datetime',
+			]);
+			$itemModel->prefix('playlist');
+			$fileModel->where('content_file.content_id=?', [$currentContentId]);
+			$fileModel->where(
+				'(content_file.file_type=? or content_file.mime_type like ?)',
+				['movie', 'video/%']
+			);
+			$fileModel->join('content_id', $itemModel, 'content_id');
+			$fileModel->orderBy(
+				'content_item.sort_order ASC, content_item.reg_datetime DESC, content_item.content_id DESC, '
+				. 'content_file.sort_order ASC, content_file.file_id ASC'
+			);
+			$data = $fileModel->select();
+			$rows = ($data && $data->total > 0) ? $data->data : [];
+		} catch (Exception $e) {
+			return [];
+		}
+
+		$isAdmin = $this->util->isAdmin($this->member);
+		$groups = [];
+		$groupIndexes = [];
+		$currentFound = false;
+
+		foreach ($rows as $row) {
+			$contentId = (int)($row['content_id'] ?? 0);
+			$fileId = (int)($row['file_id'] ?? 0);
+			$code = trim((string)($row['code'] ?? ''));
+			$fileKey = trim((string)($row['file_key'] ?? ''));
+			if ($contentId <= 0 || $fileId <= 0 || $code === '' || $fileKey === '') {
+				continue;
+			}
+
+			$contentConfig = [
+				'v2' => true,
+				'plan' => (string)($row['playlist_plan'] ?? 'paid'),
+				'status' => (string)($row['playlist_status'] ?? 'draft'),
+				'publish_start_at' => $row['playlist_publish_start_at'] ?? null,
+				'publish_end_at' => $row['playlist_publish_end_at'] ?? null,
+			];
+			if (!$this->checkPermision($contentConfig)) {
+				continue;
+			}
+
+			if (!isset($groupIndexes[$contentId])) {
+				$groupIndexes[$contentId] = count($groups);
+				$groups[] = [
+					'content_id' => $contentId,
+					'title' => trim((string)($row['playlist_title'] ?? '')) ?: ('コンテンツ ' . $contentId),
+					'notice' => $isAdmin && !$this->isContentV2Open($contentConfig)
+						? $this->getContentV2Notice($contentConfig)
+						: '',
+					'videos' => [],
+				];
+			}
+
+			$displayName = trim((string)($row['display_name'] ?? ''));
+			if ($displayName === '') {
+				$displayName = trim((string)($row['original_name'] ?? ''));
+			}
+			if ($displayName === '') {
+				$displayName = '動画 ' . (count($groups[$groupIndexes[$contentId]]['videos']) + 1);
+			}
+
+			$query = '?f=' . rawurlencode($code) . '&k=' . rawurlencode($fileKey);
+			$groups[$groupIndexes[$contentId]]['videos'][] = [
+				'file_id' => $fileId,
+				'title' => $displayName,
+				'player_url' => 'https://' . $host . '/data/player/' . $query . '&m=play',
+				'source_url' => 'https://' . $host . '/data/file/' . $query . '&m=play',
+				'download_url' => 'https://' . $host . '/data/file/' . $query . '&m=download',
+			];
+
+			if ($contentId === $currentContentId && $fileId === $currentFileId) {
+				$currentFound = true;
+			}
+		}
+
+		if (!$currentFound) {
+			return [];
+		}
+
+		return [
+			'current_content_id' => $currentContentId,
+			'current_file_id' => $currentFileId,
+			'groups' => array_values($groups),
+		];
+	}
+
 	protected function parseFileType($file)
 	{
 		$file = (string)$file;

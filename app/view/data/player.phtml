@@ -2,75 +2,557 @@
 $embedUrl = $this->view->embed;
 $videoUrl = $this->view->video;
 $downloadUrl = $this->view->download;
+$playlist = !empty($this->view->videoPlaylist) && is_array($this->view->videoPlaylist)
+  ? $this->view->videoPlaylist
+  : [];
+$playlistGroups = isset($playlist['groups']) && is_array($playlist['groups']) ? $playlist['groups'] : [];
+$hasPlaylist = !empty($playlistGroups);
+$currentContentId = (int)($playlist['current_content_id'] ?? 0);
+$currentFileId = (int)($playlist['current_file_id'] ?? 0);
+$currentGroupTitle = '';
+$currentVideoTitle = '';
+
+if ($hasPlaylist) {
+  foreach ($playlistGroups as $group) {
+    if ((int)($group['content_id'] ?? 0) !== $currentContentId) {
+      continue;
+    }
+    $currentGroupTitle = (string)($group['title'] ?? '');
+    foreach (($group['videos'] ?? []) as $video) {
+      if ((int)($video['file_id'] ?? 0) !== $currentFileId) {
+        continue;
+      }
+      $currentVideoTitle = (string)($video['title'] ?? '');
+      $videoUrl = (string)($video['source_url'] ?? $videoUrl);
+      $downloadUrl = (string)($video['download_url'] ?? $downloadUrl);
+      break 2;
+    }
+  }
+}
+
+$playlistJson = $hasPlaylist
+  ? json_encode($playlist, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)
+  : '{}';
+if ($playlistJson === false) {
+  $hasPlaylist = false;
+  $playlistGroups = [];
+  $playlistJson = '{}';
+}
 ?>
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
   <title>Video</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="alternate" type="application/json+oembed" href="<?php $this->h->p($embedUrl); ?>" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <link rel="alternate" type="application/json+oembed" href="<?php $this->h->p($embedUrl); ?>">
   <style>
+    :root {
+      color-scheme: dark;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #090a0c;
+      color: #f3f4f6;
+    }
+    * {
+      box-sizing: border-box;
+    }
     body {
       margin: 0;
-      background: #000;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      flex-direction: column;
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: #090a0c;
     }
-    video {
-      width: 100%;
-      height: auto;
-      max-height: 90vh;
-      background: #000;
+    button,
+    select,
+    a {
+      font: inherit;
     }
-    .download-btn {
-      margin-top: 10px;
-      background: rgba(255,255,255,0.9);
-      color: #000;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      text-decoration: none;
-      font-size: 14px;
-      transition: 0.2s;
-    }
-    .download-btn:hover {
-      background: #fff;
-      color: #000;
-      text-decoration: none;
-      box-shadow: 0 2px 5px rgba(255,255,255,0.3);
+    button,
+    select {
+      color: inherit;
     }
     .admin-notice {
+      background: #fff8d6;
+      border: 1px solid #f0d36b;
+      color: #4f3b00;
+      padding: 9px 12px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .legacy-player {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+    .legacy-player .admin-notice {
       position: fixed;
       top: 12px;
       left: 12px;
       right: 12px;
       z-index: 10;
-      background: #fff8d6;
-      border: 1px solid #f0d36b;
-      color: #4f3b00;
       border-radius: 6px;
-      padding: 10px 12px;
-      font: 13px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .legacy-player video {
+      width: 100%;
+      height: auto;
+      max-height: 90vh;
+      background: #000;
+    }
+    .download-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      min-height: 40px;
+      padding: 9px 14px;
+      border: 1px solid #454950;
+      border-radius: 6px;
+      background: #f4f5f7;
+      color: #111318;
+      text-decoration: none;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .download-link:hover {
+      background: #fff;
+      text-decoration: none;
+    }
+    .legacy-player .download-link {
+      margin-top: 10px;
+    }
+    .player-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+      min-height: 100vh;
+      min-height: 100dvh;
+    }
+    .player-main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      background: #000;
+    }
+    .player-main .admin-notice[hidden] {
+      display: none;
+    }
+    .video-stage {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+    .video-stage video {
+      display: block;
+      width: 100%;
+      height: 100%;
+      max-height: calc(100dvh - 116px);
+      object-fit: contain;
+      background: #000;
+    }
+    .player-toolbar {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px 16px;
+      border-top: 1px solid #282b30;
+      background: #141619;
+    }
+    .now-playing {
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .group-name,
+    .video-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .group-name {
+      color: #aeb3bc;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .video-name {
+      margin-top: 2px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
+    .transport {
+      display: flex;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+    .icon-button {
+      width: 40px;
+      height: 40px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid #454950;
+      border-radius: 6px;
+      background: #202329;
+      color: #f8f9fa;
+      cursor: pointer;
+      font-size: 19px;
+    }
+    .icon-button:hover:not(:disabled) {
+      background: #30343b;
+    }
+    .icon-button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+    .playlist-panel {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid #2a2d33;
+      background: #17191d;
+    }
+    .playlist-header {
+      padding: 14px;
+      border-bottom: 1px solid #2a2d33;
+    }
+    .mode-label {
+      display: block;
+      margin-bottom: 7px;
+      color: #b7bbc3;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .playlist-heading {
+      margin: 0;
+      color: #fff;
+      font-size: 15px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+    .playback-mode {
+      padding: 12px 14px;
+      border-bottom: 1px solid #2a2d33;
+    }
+    .mode-buttons {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border: 1px solid #454950;
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .mode-button {
+      min-width: 0;
+      min-height: 38px;
+      padding: 6px 4px;
+      border: 0;
+      border-right: 1px solid #454950;
+      background: #202329;
+      color: #c9cdd4;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+    .mode-button:last-child {
+      border-right: 0;
+    }
+    .mode-button[aria-pressed="true"] {
+      background: #e8eaed;
+      color: #121418;
+      font-weight: 700;
+    }
+    .video-list {
+      min-height: 0;
+      flex: 1 1 auto;
+      margin: 0;
+      padding: 0 8px 12px;
+      overflow-y: auto;
+      list-style: none;
+    }
+    .video-item-button {
+      width: 100%;
+      min-height: 46px;
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 7px 8px;
+      border: 0;
+      border-radius: 5px;
+      background: transparent;
+      color: #d7dae0;
+      text-align: left;
+      cursor: pointer;
+    }
+    .video-item-button:hover {
+      background: #25282e;
+    }
+    .video-item-button.is-current {
+      background: #30343b;
+      color: #fff;
+    }
+    .video-number {
+      color: #90959e;
+      font-size: 12px;
+      text-align: right;
+    }
+    .video-item-title {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    @media (max-width: 900px) {
+      .player-layout {
+        display: block;
+      }
+      .video-stage {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+      }
+      .video-stage video {
+        height: 100%;
+        max-height: none;
+      }
+      .player-toolbar {
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px 12px;
+      }
+      .now-playing {
+        flex-basis: calc(100% - 96px);
+      }
+      .download-link {
+        width: 100%;
+      }
+      .playlist-panel {
+        border-top: 1px solid #2a2d33;
+        border-left: 0;
+      }
+      .video-list {
+        max-height: 45vh;
+      }
+    }
+    @media (max-width: 420px) {
+      .mode-button {
+        font-size: 11px;
+      }
     }
   </style>
 </head>
 <body>
-  <?php if (!empty($this->view->adminNotice)): ?>
-    <div class="admin-notice"><?php $this->h->p($this->view->adminNotice); ?></div>
-  <?php endif; ?>
-  <video controls playsinline loop>
-    <source src="<?php $this->h->p($videoUrl); ?>" type="video/mp4">
-    お使いのブラウザは video タグをサポートしていません。
-  </video>
+<?php if (!$hasPlaylist): ?>
+  <main class="legacy-player">
+    <?php if (!empty($this->view->adminNotice)): ?>
+      <div class="admin-notice"><?php $this->h->p($this->view->adminNotice); ?></div>
+    <?php endif; ?>
+    <video controls playsinline loop>
+      <source src="<?php $this->h->p($videoUrl); ?>" type="video/mp4">
+      お使いのブラウザは動画再生に対応していません。
+    </video>
+    <?php if (!empty($downloadUrl)): ?>
+      <a class="download-link" href="<?php $this->h->p($downloadUrl); ?>" download>
+        <span aria-hidden="true">↓</span> ダウンロード
+      </a>
+    <?php endif; ?>
+  </main>
+<?php else: ?>
+  <div class="player-layout">
+    <main class="player-main">
+      <div id="adminNotice" class="admin-notice"<?php echo empty($this->view->adminNotice) ? ' hidden' : ''; ?>><?php $this->h->p($this->view->adminNotice ?? ''); ?></div>
+      <div class="video-stage">
+        <video id="videoPlayer" controls playsinline preload="metadata" src="<?php $this->h->p($videoUrl); ?>">
+          お使いのブラウザは動画再生に対応していません。
+        </video>
+      </div>
+      <div class="player-toolbar">
+        <div class="now-playing">
+          <div id="currentGroupName" class="group-name"><?php $this->h->p($currentGroupTitle); ?></div>
+          <div id="currentVideoName" class="video-name"><?php $this->h->p($currentVideoTitle); ?></div>
+        </div>
+        <div class="transport">
+          <button id="previousVideo" class="icon-button" type="button" title="前の動画" aria-label="前の動画">‹</button>
+          <button id="nextVideo" class="icon-button" type="button" title="次の動画" aria-label="次の動画">›</button>
+        </div>
+        <a id="downloadVideo" class="download-link" href="<?php $this->h->p($downloadUrl); ?>" download>
+          <span aria-hidden="true">↓</span> ダウンロード
+        </a>
+      </div>
+    </main>
 
-  <?php if (!empty($downloadUrl)): ?>
-    <a class="download-btn" href="<?php $this->h->p($downloadUrl); ?>" download>
-      <i class="bi bi-download"></i> ダウンロード
-    </a>
-  <?php endif; ?>
+    <aside class="playlist-panel" aria-label="動画プレイリスト">
+      <div class="playlist-header">
+        <h2 class="playlist-heading"><?php $this->h->p($currentGroupTitle); ?></h2>
+      </div>
+      <div class="playback-mode">
+        <span class="mode-label">再生モード</span>
+        <div class="mode-buttons" role="group" aria-label="再生モード">
+          <button class="mode-button" type="button" data-mode="continuous" aria-pressed="false">連続再生</button>
+          <button class="mode-button" type="button" data-mode="single-loop" aria-pressed="false">1本ループ</button>
+        </div>
+      </div>
+      <ol id="videoList" class="video-list"></ol>
+    </aside>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    const playlist = <?php echo $playlistJson ?: '{}'; ?>;
+    const groups = Array.isArray(playlist.groups) ? playlist.groups : [];
+    const player = document.getElementById('videoPlayer');
+    const videoList = document.getElementById('videoList');
+    const currentGroupName = document.getElementById('currentGroupName');
+    const currentVideoName = document.getElementById('currentVideoName');
+    const adminNotice = document.getElementById('adminNotice');
+    const downloadVideo = document.getElementById('downloadVideo');
+    const previousVideo = document.getElementById('previousVideo');
+    const nextVideo = document.getElementById('nextVideo');
+    const modeButtons = Array.from(document.querySelectorAll('[data-mode]'));
+    const storageKey = 'nill-video-playback-mode';
+    const validModes = ['continuous', 'single-loop'];
+    let currentGroupIndex = groups.findIndex(function (group) {
+      return Number(group.content_id) === Number(playlist.current_content_id);
+    });
+    if (currentGroupIndex < 0) currentGroupIndex = 0;
+    let currentVideoIndex = Math.max(0, (groups[currentGroupIndex].videos || []).findIndex(function (video) {
+      return Number(video.file_id) === Number(playlist.current_file_id);
+    }));
+    let playbackMode = 'continuous';
+
+    try {
+      const savedMode = localStorage.getItem(storageKey);
+      if (validModes.indexOf(savedMode) !== -1) {
+        playbackMode = savedMode;
+      }
+    } catch (error) {}
+
+    function currentGroup() {
+      return groups[currentGroupIndex] || { videos: [] };
+    }
+
+    function currentVideo() {
+      return (currentGroup().videos || [])[currentVideoIndex] || null;
+    }
+
+    function targetVideoIndex(direction) {
+      const videos = currentGroup().videos || [];
+      const target = currentVideoIndex + direction;
+      if (target >= 0 && target < videos.length) return target;
+      if (playbackMode === 'continuous' && videos.length > 0) {
+        return direction > 0 ? 0 : videos.length - 1;
+      }
+      return -1;
+    }
+
+    function updateMode() {
+      player.loop = playbackMode === 'single-loop';
+      modeButtons.forEach(function (button) {
+        button.setAttribute('aria-pressed', button.dataset.mode === playbackMode ? 'true' : 'false');
+      });
+      previousVideo.disabled = targetVideoIndex(-1) < 0;
+      nextVideo.disabled = targetVideoIndex(1) < 0;
+    }
+
+    function updateCurrentDetails() {
+      const group = currentGroup();
+      const video = currentVideo();
+      if (!video) return;
+      currentGroupName.textContent = group.title || '';
+      currentVideoName.textContent = video.title || '';
+      downloadVideo.href = video.download_url;
+      adminNotice.textContent = group.notice || '';
+      adminNotice.hidden = !group.notice;
+      Array.from(videoList.querySelectorAll('button')).forEach(function (button, index) {
+        const isCurrent = index === currentVideoIndex;
+        button.classList.toggle('is-current', isCurrent);
+        button.setAttribute('aria-current', isCurrent ? 'true' : 'false');
+      });
+      updateMode();
+    }
+
+    function renderVideoList() {
+      const videos = currentGroup().videos || [];
+      videoList.replaceChildren();
+      videos.forEach(function (video, index) {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        const number = document.createElement('span');
+        const title = document.createElement('span');
+        button.type = 'button';
+        button.className = 'video-item-button';
+        button.addEventListener('click', function () {
+          selectVideo(currentGroupIndex, index, true, true);
+        });
+        number.className = 'video-number';
+        number.textContent = String(index + 1);
+        title.className = 'video-item-title';
+        title.textContent = video.title || ('動画 ' + (index + 1));
+        button.append(number, title);
+        item.appendChild(button);
+        videoList.appendChild(item);
+      });
+      updateCurrentDetails();
+    }
+
+    function selectVideo(groupIndex, videoIndex, autoplay, updateUrl) {
+      const group = groups[groupIndex];
+      const video = group && Array.isArray(group.videos) ? group.videos[videoIndex] : null;
+      if (!video) return;
+      const groupChanged = currentGroupIndex !== groupIndex;
+      currentGroupIndex = groupIndex;
+      currentVideoIndex = videoIndex;
+      if (groupChanged) renderVideoList();
+      player.pause();
+      player.src = video.source_url;
+      player.load();
+      updateCurrentDetails();
+      if (updateUrl && window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', video.player_url);
+      }
+      if (autoplay) {
+        const playPromise = player.play();
+        if (playPromise && typeof playPromise.catch === 'function') playPromise.catch(function () {});
+      }
+    }
+
+    previousVideo.addEventListener('click', function () {
+      const target = targetVideoIndex(-1);
+      if (target >= 0) selectVideo(currentGroupIndex, target, true, true);
+    });
+
+    nextVideo.addEventListener('click', function () {
+      const target = targetVideoIndex(1);
+      if (target >= 0) selectVideo(currentGroupIndex, target, true, true);
+    });
+
+    modeButtons.forEach(function (button) {
+      button.addEventListener('click', function () {
+        playbackMode = button.dataset.mode;
+        try {
+          localStorage.setItem(storageKey, playbackMode);
+        } catch (error) {}
+        updateMode();
+      });
+    });
+
+    player.addEventListener('ended', function () {
+      if (playbackMode === 'single-loop') return;
+      const target = targetVideoIndex(1);
+      if (target >= 0) selectVideo(currentGroupIndex, target, true, true);
+    });
+
+    renderVideoList();
+    updateMode();
+  })();
+  </script>
+<?php endif; ?>
 </body>
 </html>
