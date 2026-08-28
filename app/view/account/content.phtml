@@ -157,8 +157,9 @@ $this->load($this->getViewPath() . "header.phtml");
           <input class="form-control" type="datetime-local" name="publish_end_at">
         </div>
         <div class="col-md-3">
-          <label class="form-label">ファイル</label>
+          <label class="form-label" for="contentUploadFiles">ファイルを追加</label>
           <input class="form-control" id="contentUploadFiles" type="file" name="files[]" multiple>
+          <div class="form-text">選択するたびに下のリストへ追加されます。</div>
         </div>
 
         <div class="col-md-6">
@@ -175,9 +176,9 @@ $this->load($this->getViewPath() . "header.phtml");
         </div>
 
         <div class="col-md-12">
-          <label class="form-label">アップロードファイル名</label>
+          <label class="form-label">アップロードファイル</label>
           <div id="contentUploadFileList" class="border rounded p-2 bg-light">
-            <div class="text-secondary small">ファイルを選択すると、保存ファイル名を個別に編集できます。</div>
+            <div class="text-secondary small">ファイルを追加すると、並び替え・削除・保存ファイル名の編集ができます。</div>
           </div>
         </div>
         <div class="col-md-8">
@@ -750,6 +751,8 @@ $this->load($this->getViewPath() . "header.phtml");
 
   var uploadInput = document.getElementById('contentUploadFiles');
   var uploadList = document.getElementById('contentUploadFileList');
+  var uploadEntries = [];
+  var uploadEntrySequence = 0;
   var uploadPreviewUrls = [];
   var uploadLargePreviewUrl = '';
   var uploadLargePreviewOverlay = null;
@@ -916,24 +919,98 @@ $this->load($this->getViewPath() . "header.phtml");
     box.appendChild(fallback);
     return box;
   }
+  function createUploadEntry(file){
+    uploadEntrySequence++;
+    return {
+      id: 'upload-' + uploadEntrySequence,
+      file: file,
+      displayName: file.name
+    };
+  }
+  function captureUploadDisplayNames(){
+    if (!uploadList) return;
+    uploadList.querySelectorAll('.js-upload-display-name').forEach(function(input){
+      var entry = uploadEntries.find(function(item){ return item.id === input.dataset.entryId; });
+      if (entry) entry.displayName = input.value;
+    });
+  }
+  function syncUploadInputFiles(){
+    if (!uploadInput || typeof DataTransfer === 'undefined') return false;
+    try {
+      var transfer = new DataTransfer();
+      uploadEntries.forEach(function(entry){
+        transfer.items.add(entry.file);
+      });
+      uploadInput.files = transfer.files;
+      return uploadInput.files.length === uploadEntries.length;
+    } catch (error) {
+      return false;
+    }
+  }
+  function uploadInputMatchesEntries(){
+    if (!uploadInput || uploadInput.files.length !== uploadEntries.length) return false;
+    for (var index = 0; index < uploadEntries.length; index++) {
+      if (uploadInput.files[index] !== uploadEntries[index].file) return false;
+    }
+    return true;
+  }
+  function applyUploadEntries(nextEntries){
+    captureUploadDisplayNames();
+    var previousEntries = uploadEntries;
+    uploadEntries = nextEntries;
+    if (!syncUploadInputFiles()) {
+      uploadEntries = previousEntries;
+      syncUploadInputFiles();
+      alert('このブラウザーではファイルの並び替えまたは削除を利用できません。');
+      return false;
+    }
+    renderUploadFiles();
+    return true;
+  }
+  function moveUploadEntry(index, direction){
+    var targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= uploadEntries.length) return;
+    var nextEntries = uploadEntries.slice();
+    var moved = nextEntries.splice(index, 1)[0];
+    nextEntries.splice(targetIndex, 0, moved);
+    applyUploadEntries(nextEntries);
+  }
+  function removeUploadEntry(index){
+    var nextEntries = uploadEntries.slice();
+    nextEntries.splice(index, 1);
+    applyUploadEntries(nextEntries);
+  }
+  function createUploadActionButton(iconClass, title, disabled, handler, danger){
+    var button = document.createElement('button');
+    button.className = 'btn btn-sm ' + (danger ? 'btn-outline-danger' : 'btn-outline-secondary');
+    button.type = 'button';
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.disabled = disabled;
+    var icon = document.createElement('i');
+    icon.className = 'bi ' + iconClass;
+    button.appendChild(icon);
+    button.addEventListener('click', handler);
+    return button;
+  }
   function renderUploadFiles(){
     if (!uploadInput || !uploadList) return;
     clearUploadPreviewUrls();
-    var files = Array.prototype.slice.call(uploadInput.files || []);
     uploadList.innerHTML = '';
-    if (!files.length) {
+    if (!uploadEntries.length) {
       var empty = document.createElement('div');
       empty.className = 'text-secondary small';
-      empty.textContent = 'ファイルを選択すると、保存ファイル名を個別に編集できます。';
+      empty.textContent = 'ファイルを追加すると、並び替え・削除・保存ファイル名の編集ができます。';
       if (!uploadInput.required) {
         empty.textContent = 'VRはファイルなしで作成できます。素材はVR設定で選択してください。';
       }
       uploadList.appendChild(empty);
       return;
     }
-    files.forEach(function(file, index){
+    uploadEntries.forEach(function(entry, index){
+      var file = entry.file;
       var row = document.createElement('div');
-      row.className = 'row g-2 align-items-center mb-2';
+      row.className = 'row g-2 align-items-center mb-2 border-bottom pb-2';
 
       var previewCol = document.createElement('div');
       previewCol.className = 'col-md-2';
@@ -950,7 +1027,7 @@ $this->load($this->getViewPath() . "header.phtml");
       previewCol.appendChild(largeBtn);
 
       var nameCol = document.createElement('div');
-      nameCol.className = 'col-md-4';
+      nameCol.className = 'col-md-3';
       var source = document.createElement('div');
       source.className = 'small text-secondary';
       source.textContent = (index + 1) + '. 選択ファイル: ' + file.name;
@@ -961,18 +1038,35 @@ $this->load($this->getViewPath() . "header.phtml");
       nameCol.appendChild(meta);
 
       var inputCol = document.createElement('div');
-      inputCol.className = 'col-md-6';
+      inputCol.className = 'col-md-5';
       var input = document.createElement('input');
-      input.className = 'form-control form-control-sm';
+      input.className = 'form-control form-control-sm js-upload-display-name';
       input.type = 'text';
       input.name = 'upload_display_names[]';
-      input.value = file.name;
+      input.value = entry.displayName;
+      input.dataset.entryId = entry.id;
       input.placeholder = '保存ファイル名';
+      input.addEventListener('input', function(){
+        entry.displayName = input.value;
+      });
       inputCol.appendChild(input);
+
+      var actionCol = document.createElement('div');
+      actionCol.className = 'col-md-2 d-flex justify-content-md-end gap-1';
+      actionCol.appendChild(createUploadActionButton('bi-arrow-up', '上へ移動', index === 0, function(){
+        moveUploadEntry(index, -1);
+      }, false));
+      actionCol.appendChild(createUploadActionButton('bi-arrow-down', '下へ移動', index === uploadEntries.length - 1, function(){
+        moveUploadEntry(index, 1);
+      }, false));
+      actionCol.appendChild(createUploadActionButton('bi-trash', 'リストから削除', false, function(){
+        removeUploadEntry(index);
+      }, true));
 
       row.appendChild(previewCol);
       row.appendChild(nameCol);
       row.appendChild(inputCol);
+      row.appendChild(actionCol);
       uploadList.appendChild(row);
     });
   }
@@ -989,7 +1083,29 @@ $this->load($this->getViewPath() . "header.phtml");
     if (uploadTypeSelect) {
       uploadTypeSelect.addEventListener('change', updateUploadFileRequirement);
     }
-    uploadInput.addEventListener('change', renderUploadFiles);
+    uploadInput.addEventListener('change', function(){
+      var selectedFiles = Array.prototype.slice.call(uploadInput.files || []);
+      if (!selectedFiles.length) return;
+      captureUploadDisplayNames();
+      var previousEntries = uploadEntries.slice();
+      uploadEntries = uploadEntries.concat(selectedFiles.map(createUploadEntry));
+      if (!syncUploadInputFiles()) {
+        uploadEntries = selectedFiles.map(createUploadEntry);
+        if (previousEntries.length) {
+          alert('このブラウザーではファイルの追加選択を利用できないため、選択内容を置き換えました。');
+        }
+      }
+      renderUploadFiles();
+    });
+    if (uploadForm) {
+      uploadForm.addEventListener('submit', function(event){
+        captureUploadDisplayNames();
+        if (!syncUploadInputFiles() && !uploadInputMatchesEntries()) {
+          event.preventDefault();
+          alert('アップロードファイルを準備できませんでした。ファイルを選択し直してください。');
+        }
+      });
+    }
     updateUploadFileRequirement();
   }
 })();
