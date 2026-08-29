@@ -4,6 +4,7 @@ require_once("BasePageClass.php");
 
 class DataPage extends PTUserPage
 {
+	private const CONTENT_V2_ZIP_CACHE_ENABLED = true;
 
 	public function indexAction()
 	{
@@ -804,8 +805,15 @@ class DataPage extends PTUserPage
 
 	protected function sendContentV2Zip(array $rows, int $contentId): void
 	{
-		$tmp = $this->createContentV2Zip($rows);
-		if ($tmp === false) {
+		$temporary = false;
+		$zipPath = self::CONTENT_V2_ZIP_CACHE_ENABLED
+			? $this->getContentV2ZipCache($rows, $contentId)
+			: false;
+		if ($zipPath === false) {
+			$zipPath = $this->createContentV2Zip($rows);
+			$temporary = true;
+		}
+		if ($zipPath === false) {
 			$this->configLoadErrorAction();
 			return;
 		}
@@ -820,13 +828,15 @@ class DataPage extends PTUserPage
 		header('Content-Type: application/zip');
 		header('Content-Disposition: attachment; filename="' . $zipFileName . '"');
 		header('Content-Transfer-Encoding: binary');
-		header('Content-Length: ' . filesize($tmp));
+		header('Content-Length: ' . filesize($zipPath));
 		if (ob_get_level()) {
 			@ob_clean();
 		}
 		flush();
-		readfile($tmp);
-		@unlink($tmp);
+		readfile($zipPath);
+		if ($temporary) {
+			@unlink($zipPath);
+		}
 	}
 
 	protected function issueContentZipDownloadToken(int $contentId, string $key): string
@@ -929,6 +939,7 @@ class DataPage extends PTUserPage
 				'mime_type',
 				'file_size',
 				'sort_order',
+				'upd_datetime',
 			]);
 			$itemModel->setCol([
 				'title',
@@ -968,12 +979,213 @@ class DataPage extends PTUserPage
 		];
 	}
 
-	protected function createContentV2Zip(array $rows)
+	protected function getContentV2ZipCache(array $rows, int $contentId)
+	{
+		$base = realpath(PCPath::systemRoot() . 'app/res/content/');
+		if ($base === false) {
+			return false;
+		}
+
+		$cacheDir = $base . DIRECTORY_SEPARATOR . 'tmp' . DIRECTORY_SEPARATOR . 'contentzip';
+		if (!is_dir($cacheDir) && !mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
+			return false;
+		}
+
+		$lockPath = $cacheDir . DIRECTORY_SEPARATOR . 'content-' . $contentId . '.lock';
+		$lock = @fopen($lockPath, 'c+');
+		if ($lock === false || !flock($lock, LOCK_EX)) {
+			if (is_resource($lock)) {
+				fclose($lock);
+			}
+			return false;
+		}
+
+		try {
+			for ($attempt = 0; $attempt < 2; $attempt++) {
+				$state = $this->buildContentV2ZipCacheState($rows, $contentId, $base);
+				if ($state === null) {
+					return false;
+				}
+
+				$cacheFileName = 'content-' . $contentId . '-' . $state['fingerprint'] . '.zip';
+				$cachePath = $cacheDir . DIRECTORY_SEPARATOR . $cacheFileName;
+				$metadataPath = $cacheDir . DIRECTORY_SEPARATOR . 'content-' . $contentId . '.json';
+				$metadata = $this->loadContentV2ZipCacheMetadata($metadataPath);
+
+				if (
+					is_array($metadata)
+					&& hash_equals((string)($metadata['fingerprint'] ?? ''), $state['fingerprint'])
+					&& (string)($metadata['cache_file'] ?? '') === $cacheFileName
+					&& is_file($cachePath)
+					&& @filesize($cachePath) > 0
+				) {
+					return $cachePath;
+				}
+
+				if (is_file($cachePath) && @filesize($cachePath) > 0) {
+					$this->writeContentV2ZipCacheMetadata($metadataPath, [
+						'version' => 1,
+						'content_id' => $contentId,
+						'fingerprint' => $state['fingerprint'],
+						'cache_file' => $cacheFileName,
+						'created_at' => date('c'),
+						'sources' => $state['sources'],
+					]);
+					return $cachePath;
+				}
+
+				$tmp = $this->createContentV2Zip($rows, $cacheDir);
+				if ($tmp === false) {
+					return false;
+				}
+
+				$afterState = $this->buildContentV2ZipCacheState($rows, $contentId, $base);
+				if ($afterState === null || !hash_equals($state['fingerprint'], $afterState['fingerprint'])) {
+					@unlink($tmp);
+					continue;
+				}
+
+				if (!@rename($tmp, $cachePath)) {
+					if (!is_file($cachePath) || @filesize($cachePath) <= 0) {
+						@unlink($tmp);
+						return false;
+					}
+					@unlink($tmp);
+				}
+
+				$this->writeContentV2ZipCacheMetadata($metadataPath, [
+					'version' => 1,
+					'content_id' => $contentId,
+					'fingerprint' => $state['fingerprint'],
+					'cache_file' => $cacheFileName,
+					'created_at' => date('c'),
+					'sources' => $state['sources'],
+				]);
+				$this->removeOldContentV2ZipCacheFiles($cacheDir, $contentId, $cacheFileName);
+				return $cachePath;
+			}
+		} finally {
+			flock($lock, LOCK_UN);
+			fclose($lock);
+		}
+
+		return false;
+	}
+
+	protected function buildContentV2ZipCacheState(array $rows, int $contentId, string $base): ?array
+	{
+		$sources = [];
+		$addedNames = [];
+		$existingFiles = 0;
+
+		foreach ($rows as $row) {
+			if (($row['file_type'] ?? '') === 'vr') {
+				continue;
+			}
+
+			$entryName = $this->buildContentV2ZipEntryName($row);
+			$real = $this->resolveContentV2ZipRealPath((string)($row['storage_path'] ?? ''), $base);
+			$exists = $real !== false && is_file($real);
+			if ($exists) {
+				$entryName = $this->uniqueContentV2ZipEntryName($entryName, $addedNames);
+				$addedNames[$entryName] = true;
+			}
+			$source = [
+				'file_id' => (int)($row['file_id'] ?? 0),
+				'storage_path' => (string)($row['storage_path'] ?? ''),
+				'entry_name' => $exists ? $entryName : null,
+				'sort_order' => (int)($row['sort_order'] ?? 0),
+				'db_updated_at' => (string)($row['upd_datetime'] ?? ''),
+				'exists' => $exists,
+			];
+
+			if ($exists) {
+				clearstatcache(true, $real);
+				$source['size'] = (int)@filesize($real);
+				$source['mtime'] = (int)@filemtime($real);
+				$source['ctime'] = (int)@filectime($real);
+				$source['inode'] = (int)@fileinode($real);
+				$existingFiles++;
+			}
+			$sources[] = $source;
+		}
+
+		if ($existingFiles <= 0) {
+			return null;
+		}
+
+		$payload = json_encode([
+			'version' => 1,
+			'content_id' => $contentId,
+			'sources' => $sources,
+		], JSON_UNESCAPED_SLASHES);
+		if ($payload === false) {
+			return null;
+		}
+
+		return [
+			'fingerprint' => hash('sha256', $payload),
+			'sources' => $sources,
+		];
+	}
+
+	protected function loadContentV2ZipCacheMetadata(string $metadataPath): ?array
+	{
+		if (!is_file($metadataPath)) {
+			return null;
+		}
+		$json = @file_get_contents($metadataPath);
+		if ($json === false) {
+			return null;
+		}
+		$data = json_decode($json, true);
+		return is_array($data) ? $data : null;
+	}
+
+	protected function writeContentV2ZipCacheMetadata(string $metadataPath, array $metadata): bool
+	{
+		$json = json_encode($metadata, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+		if ($json === false) {
+			return false;
+		}
+		$tmp = tempnam(dirname($metadataPath), 'metadata_');
+		if ($tmp === false) {
+			return false;
+		}
+		if (file_put_contents($tmp, $json, LOCK_EX) === false) {
+			@unlink($tmp);
+			return false;
+		}
+		if (!@rename($tmp, $metadataPath)) {
+			@unlink($metadataPath);
+			if (!@rename($tmp, $metadataPath)) {
+				@unlink($tmp);
+				return false;
+			}
+		}
+		return true;
+	}
+
+	protected function removeOldContentV2ZipCacheFiles(string $cacheDir, int $contentId, string $currentFileName): void
+	{
+		$files = glob($cacheDir . DIRECTORY_SEPARATOR . 'content-' . $contentId . '-*.zip');
+		if (!$files) {
+			return;
+		}
+		foreach ($files as $file) {
+			if (basename($file) !== $currentFileName) {
+				@unlink($file);
+			}
+		}
+	}
+
+	protected function createContentV2Zip(array $rows, ?string $tempDirectory = null)
 	{
 		if (!class_exists('ZipArchive')) {
 			return false;
 		}
-		$tmp = tempnam(sys_get_temp_dir(), 'nill_content_zip_');
+		$tempDirectory = $tempDirectory && is_dir($tempDirectory) ? $tempDirectory : sys_get_temp_dir();
+		$tmp = tempnam($tempDirectory, 'nill_content_zip_');
 		if ($tmp === false) {
 			return false;
 		}
@@ -1008,8 +1220,8 @@ class DataPage extends PTUserPage
 			}
 		}
 
-		$zip->close();
-		if ($added <= 0) {
+		$closed = $zip->close();
+		if (!$closed || $added <= 0 || !is_file($tmp) || @filesize($tmp) <= 0) {
 			@unlink($tmp);
 			return false;
 		}
