@@ -18,6 +18,7 @@ CREATE TABLE request_idea (
   favorite_flag TINYINT NOT NULL DEFAULT 0,
   done_flag TINYINT NOT NULL DEFAULT 0,
   withdrawn_flag TINYINT NOT NULL DEFAULT 0,
+  limit_exempt_flag TINYINT NOT NULL DEFAULT 0,
   hidden_flag TINYINT NOT NULL DEFAULT 0,
   admin_viewed_datetime DATETIME NULL,
   admin_memo TEXT NULL,
@@ -76,6 +77,7 @@ CREATE TABLE request_setting (
 CREATE TABLE request_type_setting (
   type_code VARCHAR(32) NOT NULL,
   type_label VARCHAR(64) NOT NULL,
+  description_text TEXT NULL,
   enabled_flag TINYINT NOT NULL DEFAULT 0,
   monthly_limit INT UNSIGNED NULL,
   cooldown_minutes INT UNSIGNED NULL,

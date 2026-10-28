@@ -24,6 +24,7 @@ class RequestIdeaModel extends PTBaseModel
 			'favorite_flag' => 'favorite_flag',
 			'done_flag' => 'done_flag',
 			'withdrawn_flag' => 'withdrawn_flag',
+			'limit_exempt_flag' => 'limit_exempt_flag',
 			'hidden_flag' => 'hidden_flag',
 			'admin_viewed_datetime' => 'admin_viewed_datetime',
 			'admin_memo' => 'admin_memo',

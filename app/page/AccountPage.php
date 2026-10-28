@@ -146,31 +146,27 @@ class AccountPage extends PTUserPage
 
 		$errors = [];
 		if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-			if (!$this->checkRequestAdminCsrf((string)($_POST['_csrf'] ?? ''))) {
-				$errors[] = '画面の有効期限が切れました。再読み込みしてから更新してください。';
-			} else {
-				$operation = (string)($_POST['operation'] ?? '');
-				if ($operation === 'update_request') {
-					if ($this->updateRequestAdmin()) {
-						$this->redirect('/account/request?updated=1');
-						return;
-					}
-					$errors[] = 'リクエストの更新に失敗しました。';
-				} elseif ($operation === 'save_setting') {
-					if ($this->saveRequestSettingAdmin()) {
-						$this->redirect('/account/request?setting_saved=1');
-						return;
-					}
-					$errors[] = '受付設定の保存に失敗しました。';
-				} elseif ($operation === 'delete_request_attachment') {
-					if ($this->deleteRequestAttachmentAdmin()) {
-						$this->redirect('/account/request?attachment_deleted=1');
-						return;
-					}
-					$errors[] = '添付画像の削除に失敗しました。';
-				} else {
-					$errors[] = '不明な操作です。';
+			$operation = (string)($_POST['operation'] ?? '');
+			if ($operation === 'update_request') {
+				if ($this->updateRequestAdmin()) {
+					$this->redirect('/account/request?updated=1');
+					return;
 				}
+				$errors[] = 'リクエストの更新に失敗しました。';
+			} elseif ($operation === 'save_setting') {
+				if ($this->saveRequestSettingAdmin()) {
+					$this->redirect('/account/request?setting_saved=1');
+					return;
+				}
+				$errors[] = '受付設定の保存に失敗しました。';
+			} elseif ($operation === 'delete_request_attachment') {
+				if ($this->deleteRequestAttachmentAdmin()) {
+					$this->redirect('/account/request?attachment_deleted=1');
+					return;
+				}
+				$errors[] = '添付画像の削除に失敗しました。';
+			} else {
+				$errors[] = '不明な操作です。';
 			}
 		}
 
@@ -244,7 +240,6 @@ class AccountPage extends PTUserPage
 			'total' => $total,
 			'total_pages' => $totalPages,
 		];
-		$this->view->csrf = $this->requestAdminCsrfToken();
 		$this->view->errors = $errors;
 		$this->view->infos = $infos;
 		$this->view->title = 'リクエスト管理';
@@ -470,6 +465,7 @@ class AccountPage extends PTUserPage
 			'request_id' => $requestId,
 			'favorite_flag' => isset($_POST['favorite_flag']) ? 1 : 0,
 			'done_flag' => isset($_POST['done_flag']) ? 1 : 0,
+			'limit_exempt_flag' => isset($_POST['limit_exempt_flag']) ? 1 : 0,
 			'hidden_flag' => isset($_POST['hidden_flag']) ? 1 : 0,
 			'admin_memo' => mb_substr(trim((string)($_POST['admin_memo'] ?? '')), 0, 16000, 'UTF-8'),
 			'content_id' => $contentId > 0 ? $contentId : null,
@@ -601,15 +597,10 @@ class AccountPage extends PTUserPage
 
 	private function updateRequestAdminFlagResponse(): void
 	{
-		if (!$this->checkRequestAdminCsrf((string)($_POST['_csrf'] ?? ''))) {
-			$this->requestAdminJson(['success' => false, 'message' => '画面の有効期限が切れました。'], 400);
-			return;
-		}
-
 		$requestId = (int)($_POST['request_id'] ?? 0);
 		$field = (string)($_POST['field'] ?? '');
 		$value = ((string)($_POST['value'] ?? '0') === '1') ? 1 : 0;
-		if ($requestId <= 0 || !in_array($field, ['favorite_flag', 'done_flag', 'hidden_flag'], true)) {
+		if ($requestId <= 0 || !in_array($field, ['favorite_flag', 'done_flag', 'limit_exempt_flag', 'hidden_flag'], true)) {
 			$this->requestAdminJson(['success' => false, 'message' => '更新内容が正しくありません。'], 400);
 			return;
 		}
@@ -662,19 +653,22 @@ class AccountPage extends PTUserPage
 
 		$postedTypeMonthlyLimits = $_POST['request_type_monthly_limit'] ?? [];
 		$postedTypeCooldownMinutes = $_POST['request_type_cooldown_minutes'] ?? [];
+		$postedTypeDescriptions = $_POST['request_type_description'] ?? [];
 		if (!is_array($postedTypeMonthlyLimits)) $postedTypeMonthlyLimits = [];
 		if (!is_array($postedTypeCooldownMinutes)) $postedTypeCooldownMinutes = [];
-		$typeLimits = [];
+		if (!is_array($postedTypeDescriptions)) $postedTypeDescriptions = [];
+		$typeSettings = [];
 		foreach ($requestTypes as $type) {
 			$typeCode = (string)$type['type_code'];
-			$typeLimits[$typeCode] = [
+			$typeSettings[$typeCode] = [
+				'description_text' => mb_substr(trim((string)($postedTypeDescriptions[$typeCode] ?? '')), 0, 16000, 'UTF-8'),
 				'monthly_limit' => $this->normalizeRequestTypeLimitAdmin($postedTypeMonthlyLimits, $typeCode, 1000),
 				'cooldown_minutes' => $this->normalizeRequestTypeLimitAdmin($postedTypeCooldownMinutes, $typeCode, 525600),
 			];
 		}
 
 		$settingModel = new RequestSettingModel();
-		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $attachmentMaxSizeMb, $requestTypes, $enabledCodes, $typeLimits) {
+		return (bool)$settingModel->edit(function() use ($settingModel, $maxLength, $monthlyLimit, $cooldownMinutes, $attachmentMaxSizeMb, $requestTypes, $enabledCodes, $typeSettings) {
 			$saved = $settingModel->save([
 				'setting_id' => 1,
 				'accept_flag' => isset($_POST['accept_flag']) ? 1 : 0,
@@ -696,9 +690,10 @@ class AccountPage extends PTUserPage
 				$typeSaved = $typeModel->save([
 					'type_code' => $typeCode,
 					'type_label' => (string)$type['type_label'],
+					'description_text' => $typeSettings[$typeCode]['description_text'],
 					'enabled_flag' => in_array($typeCode, $enabledCodes, true) ? 1 : 0,
-					'monthly_limit' => $typeLimits[$typeCode]['monthly_limit'],
-					'cooldown_minutes' => $typeLimits[$typeCode]['cooldown_minutes'],
+					'monthly_limit' => $typeSettings[$typeCode]['monthly_limit'],
+					'cooldown_minutes' => $typeSettings[$typeCode]['cooldown_minutes'],
 					'sort_order' => (int)$type['sort_order'],
 				]);
 				if (!$typeSaved) return false;
@@ -743,19 +738,6 @@ class AccountPage extends PTUserPage
 		return ($result && $result->total > 0) ? $result->data : [];
 	}
 
-	private function requestAdminCsrfToken(): string
-	{
-		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-		if (empty($_SESSION['request_admin_csrf'])) $_SESSION['request_admin_csrf'] = bin2hex(random_bytes(16));
-		return $_SESSION['request_admin_csrf'];
-	}
-
-	private function checkRequestAdminCsrf(string $token): bool
-	{
-		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-		return isset($_SESSION['request_admin_csrf']) && hash_equals($_SESSION['request_admin_csrf'], $token);
-	}
-
 	public function contentAction()
 	{
 		if(!$this->member){
@@ -770,32 +752,28 @@ class AccountPage extends PTUserPage
 		$errors = [];
 		$infos = [];
 		if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-			if (!$this->checkContentCsrf($_POST['_csrf'] ?? '')) {
-				$errors[] = 'Invalid CSRF token.';
-			} else {
-				try {
-					$op = (string)($_POST['operation'] ?? '');
-					if ($op === 'upload') {
-						$this->createContentV2();
-						$this->redirect('/account/content?created=1');
-						return;
-					} else if ($op === 'update') {
-						$this->updateContentV2();
-						$this->redirect('/account/content?updated=1');
-						return;
-					} else if ($op === 'delete_item') {
-						$this->deleteContentV2Item();
-						$this->redirect('/account/content?deleted=1');
-						return;
-					} else if ($op === 'delete_file') {
-						$this->deleteContentV2File();
-						$this->redirect('/account/content?file_deleted=1');
-						return;
-					}
-					$errors[] = 'Unknown operation.';
-				} catch (Exception $e) {
-					$errors[] = $e->getMessage();
+			try {
+				$op = (string)($_POST['operation'] ?? '');
+				if ($op === 'upload') {
+					$this->createContentV2();
+					$this->redirect('/account/content?created=1');
+					return;
+				} else if ($op === 'update') {
+					$this->updateContentV2();
+					$this->redirect('/account/content?updated=1');
+					return;
+				} else if ($op === 'delete_item') {
+					$this->deleteContentV2Item();
+					$this->redirect('/account/content?deleted=1');
+					return;
+				} else if ($op === 'delete_file') {
+					$this->deleteContentV2File();
+					$this->redirect('/account/content?file_deleted=1');
+					return;
 				}
+				$errors[] = 'Unknown operation.';
+			} catch (Exception $e) {
+				$errors[] = $e->getMessage();
 			}
 		}
 
@@ -806,24 +784,10 @@ class AccountPage extends PTUserPage
 
 		$this->view->errors = $errors;
 		$this->view->infos = $infos;
-		$this->view->csrf = $this->contentCsrfToken();
 		$this->view->rows = $this->loadContentV2Rows();
 		$this->view->title = 'Content v2';
 		$this->setTemplatePath("account/content.phtml");
 		$this->display();
-	}
-
-	private function contentCsrfToken(): string
-	{
-		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-		if (empty($_SESSION['content_v2_csrf'])) $_SESSION['content_v2_csrf'] = bin2hex(random_bytes(16));
-		return $_SESSION['content_v2_csrf'];
-	}
-
-	private function checkContentCsrf(string $token): bool
-	{
-		if (session_status() !== PHP_SESSION_ACTIVE) session_start();
-		return isset($_SESSION['content_v2_csrf']) && hash_equals($_SESSION['content_v2_csrf'], $token);
 	}
 
 	private function createContentV2(): void

@@ -7,6 +7,7 @@ class RequestTypeSettingModel extends PTBaseModel
 		'col' => array(
 			'type_code' => 'type_code',
 			'type_label' => 'type_label',
+			'description_text' => 'description_text',
 			'enabled_flag' => 'enabled_flag',
 			'monthly_limit' => 'monthly_limit',
 			'cooldown_minutes' => 'cooldown_minutes',

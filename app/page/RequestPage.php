@@ -533,9 +533,9 @@ class RequestPage extends PTUserPage
 		$start = $now->format('Y-m-01 00:00:00');
 		$model = new RequestIdeaModel();
 		if ($requestType === null) {
-			$model->where('member_id=? and reg_datetime>=?', [$memberId, $start]);
+			$model->where('member_id=? and limit_exempt_flag=0 and (withdrawn_flag=0 or done_flag=1) and reg_datetime>=?', [$memberId, $start]);
 		} else {
-			$model->where('member_id=? and request_type=? and reg_datetime>=?', [$memberId, $requestType, $start]);
+			$model->where('member_id=? and request_type=? and limit_exempt_flag=0 and (withdrawn_flag=0 or done_flag=1) and reg_datetime>=?', [$memberId, $requestType, $start]);
 		}
 		$count = $model->count();
 		return $count === false ? 0 : (int)$count;
@@ -545,9 +545,9 @@ class RequestPage extends PTUserPage
 	{
 		$model = new RequestIdeaModel();
 		if ($requestType === null) {
-			$model->where('member_id=?', [$memberId]);
+			$model->where('member_id=? and limit_exempt_flag=0 and (withdrawn_flag=0 or done_flag=1)', [$memberId]);
 		} else {
-			$model->where('member_id=? and request_type=?', [$memberId, $requestType]);
+			$model->where('member_id=? and request_type=? and limit_exempt_flag=0 and (withdrawn_flag=0 or done_flag=1)', [$memberId, $requestType]);
 		}
 		$result = $model
 			->orderBy('request_idea.reg_datetime desc')

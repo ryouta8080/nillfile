@@ -1,6 +1,5 @@
 <?php
 $rows = $this->view->rows ?? [];
-$csrf = $this->view->csrf ?? '';
 $errors = $this->view->errors ?? [];
 $infos = $this->view->infos ?? [];
 
@@ -116,8 +115,6 @@ $this->load($this->getViewPath() . "header.phtml");
   <section class="border rounded p-3 mb-4">
     <h2 class="h5 mb-3">新規コンテンツ</h2>
     <form method="post" action="/account/content" enctype="multipart/form-data">
-      <input type="hidden" name="_csrf" value="<?php echo content_v2_h($csrf); ?>">
-
       <div class="row g-3">
         <div class="col-md-6">
           <label class="form-label">タイトル</label>
@@ -257,7 +254,6 @@ $this->load($this->getViewPath() . "header.phtml");
     ?>
     <section class="border rounded p-3 mb-4">
       <form method="post" action="/account/content">
-        <input type="hidden" name="_csrf" value="<?php echo content_v2_h($csrf); ?>">
         <input type="hidden" name="content_id" value="<?php echo (int)$contentId; ?>">
         <textarea id="<?php echo content_v2_h($copyTargetId); ?>" class="d-none"><?php echo content_v2_h($copyText); ?></textarea>
 

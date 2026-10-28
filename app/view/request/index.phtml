@@ -35,6 +35,12 @@ if ($requestCooldownMessage !== '') $requestLimitMessages[] = $requestCooldownMe
 $canSubmit = !empty($setting['accept_flag']) && ($adminBypass || empty($setting['paid_only_flag']) || $isPaid) && !empty($availableRequestTypes);
 $maxLength = max(1, (int)($setting['max_length'] ?? 2000));
 $defaultRequestType = (string)($availableRequestTypes[0]['type_code'] ?? '');
+$selectedRequestType = (string)($formValues['request_type'] ?? $defaultRequestType);
+$requestTypeDescriptions = [];
+foreach ($requestTypes as $requestType) {
+    $requestTypeDescriptions[(string)$requestType['type_code']] = (string)($requestType['description_text'] ?? '');
+}
+$selectedRequestTypeDescription = (string)($requestTypeDescriptions[$selectedRequestType] ?? '');
 $attachmentEnabled = !empty($setting['attachment_enabled_flag']);
 $attachmentMaxSizeMb = max(1, min(50, (int)($setting['attachment_max_size_mb'] ?? 10)));
 
@@ -94,6 +100,10 @@ $this->load($this->getViewPath() . 'header.phtml');
   position: absolute;
   top: 0.25rem;
 }
+.request-type-description {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 </style>
 
 <main class="container py-4" style="max-width: 960px;">
@@ -143,6 +153,7 @@ $this->load($this->getViewPath() . 'header.phtml');
                 <option value="<?php echo request_page_h($value); ?>"<?php echo (($formValues['request_type'] ?? $defaultRequestType) === $value) ? ' selected' : ''; ?><?php echo $typeAvailable ? '' : ' disabled'; ?>><?php echo request_page_h($typeOptionLabel); ?></option>
               <?php endforeach; ?>
             </select>
+            <div class="form-text request-type-description<?php echo $selectedRequestTypeDescription === '' ? ' d-none' : ''; ?>" id="requestTypeDescription"><?php echo request_page_h($selectedRequestTypeDescription); ?></div>
           </div>
           <div class="col-12">
             <label class="form-label" for="requestText">リクエスト内容</label>
@@ -295,6 +306,20 @@ $this->load($this->getViewPath() . 'header.phtml');
     function updateLength(){ count.textContent = Array.from(input.value).length; }
     input.addEventListener('input', updateLength);
     updateLength();
+  }
+
+  var requestType = document.getElementById('requestType');
+  var requestTypeDescription = document.getElementById('requestTypeDescription');
+  var requestTypeDescriptions = <?php echo json_encode($requestTypeDescriptions, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  function updateRequestTypeDescription(){
+    if (!requestType || !requestTypeDescription) return;
+    var description = requestTypeDescriptions[requestType.value] || '';
+    requestTypeDescription.textContent = description;
+    requestTypeDescription.classList.toggle('d-none', description === '');
+  }
+  if (requestType) {
+    requestType.addEventListener('change', updateRequestTypeDescription);
+    updateRequestTypeDescription();
   }
 
   var form = document.getElementById('requestSubmitForm');

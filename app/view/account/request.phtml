@@ -9,7 +9,6 @@ foreach ($requestTypes as $requestType) {
 }
 $filters = $this->view->filters ?? ['state' => 'open', 'favorite' => false, 'q' => ''];
 $pagination = $this->view->pagination ?? ['page' => 1, 'per_page' => 50, 'total_pages' => 1, 'total' => count($rows)];
-$csrf = (string)($this->view->csrf ?? '');
 $errors = $this->view->errors ?? [];
 $infos = $this->view->infos ?? [];
 $requestTotal = (int)($pagination['total'] ?? count($rows));
@@ -171,7 +170,6 @@ $this->load($this->getViewPath() . 'header.phtml');
   <details class="border rounded p-3 mb-4">
     <summary class="fw-semibold">受付設定</summary>
     <form class="mt-3" method="post" action="/account/request">
-      <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
       <input type="hidden" name="operation" value="save_setting">
       <div class="row g-3">
         <div class="col-md-6">
@@ -199,6 +197,7 @@ $this->load($this->getViewPath() . 'header.phtml');
               <thead class="table-light">
                 <tr>
                   <th scope="col">種別</th>
+                  <th scope="col" style="min-width: 20rem;">ユーザー向け説明</th>
                   <th scope="col" style="min-width: 12rem;">月間上限</th>
                   <th scope="col" style="min-width: 12rem;">連続投稿間隔</th>
                 </tr>
@@ -207,6 +206,7 @@ $this->load($this->getViewPath() . 'header.phtml');
                 <?php foreach ($requestTypes as $type): ?>
                   <?php
                   $typeCode = (string)$type['type_code'];
+                  $typeDescription = (string)($type['description_text'] ?? '');
                   $typeMonthlyLimit = array_key_exists('monthly_limit', $type) && $type['monthly_limit'] !== null ? (int)$type['monthly_limit'] : '';
                   $typeCooldownMinutes = array_key_exists('cooldown_minutes', $type) && $type['cooldown_minutes'] !== null ? (int)$type['cooldown_minutes'] : '';
                   ?>
@@ -216,6 +216,9 @@ $this->load($this->getViewPath() . 'header.phtml');
                         <input class="form-check-input" id="requestType<?php echo request_admin_h($typeCode); ?>" type="checkbox" name="request_type_enabled[]" value="<?php echo request_admin_h($typeCode); ?>"<?php echo !empty($type['enabled_flag']) ? ' checked' : ''; ?>>
                         <label class="form-check-label" for="requestType<?php echo request_admin_h($typeCode); ?>"><?php echo request_admin_h($type['type_label']); ?></label>
                       </div>
+                    </td>
+                    <td>
+                      <textarea class="form-control form-control-sm" name="request_type_description[<?php echo request_admin_h($typeCode); ?>]" rows="2" maxlength="16000" placeholder="この種別を選択したユーザーに表示する説明"><?php echo request_admin_h($typeDescription); ?></textarea>
                     </td>
                     <td>
                       <div class="input-group input-group-sm">
@@ -314,6 +317,7 @@ $this->load($this->getViewPath() . 'header.phtml');
         $done = !empty($row['done_flag']);
         $hidden = !empty($row['hidden_flag']);
         $favorite = !empty($row['favorite_flag']);
+        $limitExempt = !empty($row['limit_exempt_flag']);
         $isNew = empty($row['admin_viewed_datetime']);
         $attachments = is_array($row['attachments'] ?? null) ? $row['attachments'] : [];
         $storedAttachments = array_values(array_filter($attachments, function($attachment) {
@@ -329,6 +333,7 @@ $this->load($this->getViewPath() . 'header.phtml');
             <span class="text-secondary small">#<?php echo $requestId; ?></span>
             <?php if ($isNew): ?><span class="badge text-bg-danger">NEW</span><?php endif; ?>
             <i class="bi bi-star-fill text-warning js-favorite-indicator<?php echo $favorite ? '' : ' d-none'; ?>" title="お気に入り"></i>
+            <span class="badge text-bg-light border js-limit-exempt-indicator<?php echo $limitExempt ? '' : ' d-none'; ?>">上限カウント対象外</span>
             <span class="badge <?php echo $hidden ? 'text-bg-dark' : ($withdrawn ? 'text-bg-secondary' : ($done ? 'text-bg-success' : 'text-bg-primary')); ?> js-request-status">
               <?php echo $hidden ? '非表示' : ($withdrawn ? '取り下げ' : ($done ? '完了' : '未完了')); ?>
             </span>
@@ -374,7 +379,6 @@ $this->load($this->getViewPath() . 'header.phtml');
                         <i class="bi bi-arrows-fullscreen"></i> 表示
                       </a>
                       <form method="post" action="/account/request" onsubmit="return confirm('添付画像をサーバーから削除しますか？この操作は取り消せません。');">
-                        <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
                         <input type="hidden" name="operation" value="delete_request_attachment">
                         <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
                         <input type="hidden" name="attachment_id" value="<?php echo $attachmentId; ?>">
@@ -390,7 +394,6 @@ $this->load($this->getViewPath() . 'header.phtml');
             <?php endif; ?>
 
             <form class="request-admin-controls mt-2" method="post" action="/account/request">
-              <input type="hidden" name="_csrf" value="<?php echo request_admin_h($csrf); ?>">
               <input type="hidden" name="operation" value="update_request">
               <input type="hidden" name="request_id" value="<?php echo $requestId; ?>">
               <div class="row g-2">
@@ -403,6 +406,10 @@ $this->load($this->getViewPath() . 'header.phtml');
                     <div class="form-check form-switch">
                       <input class="form-check-input js-request-flag" id="done<?php echo $requestId; ?>" type="checkbox" name="done_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="done_flag"<?php echo $done ? ' checked' : ''; ?>>
                       <label class="form-check-label" for="done<?php echo $requestId; ?>">完了</label>
+                    </div>
+                    <div class="form-check form-switch">
+                      <input class="form-check-input js-request-flag" id="limitExempt<?php echo $requestId; ?>" type="checkbox" name="limit_exempt_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="limit_exempt_flag"<?php echo $limitExempt ? ' checked' : ''; ?>>
+                      <label class="form-check-label" for="limitExempt<?php echo $requestId; ?>" title="月間上限と連続投稿間隔の計算から除外します">上限カウント対象外</label>
                     </div>
                     <div class="form-check form-switch">
                       <input class="form-check-input js-request-flag" id="hidden<?php echo $requestId; ?>" type="checkbox" name="hidden_flag" value="1" data-request-id="<?php echo $requestId; ?>" data-field="hidden_flag"<?php echo $hidden ? ' checked' : ''; ?>>
@@ -488,8 +495,6 @@ $this->load($this->getViewPath() . 'header.phtml');
 
 <script>
 (function(){
-  var csrf = <?php echo json_encode($csrf, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP); ?>;
-
   function resizeTextarea(textarea){
     textarea.style.height = 'auto';
     textarea.style.height = Math.max(textarea.scrollHeight, 76) + 'px';
@@ -516,6 +521,11 @@ $this->load($this->getViewPath() . 'header.phtml');
     if (input.dataset.field === 'favorite_flag') {
       var indicator = row.querySelector('.js-favorite-indicator');
       if (indicator) indicator.classList.toggle('d-none', !input.checked);
+      return;
+    }
+    if (input.dataset.field === 'limit_exempt_flag') {
+      var exemptIndicator = row.querySelector('.js-limit-exempt-indicator');
+      if (exemptIndicator) exemptIndicator.classList.toggle('d-none', !input.checked);
       return;
     }
 
@@ -545,7 +555,6 @@ $this->load($this->getViewPath() . 'header.phtml');
       input.disabled = true;
       try {
         var body = new URLSearchParams();
-        body.set('_csrf', csrf);
         body.set('operation', 'update_request_flag');
         body.set('request_id', input.dataset.requestId || '0');
         body.set('field', input.dataset.field || '');
