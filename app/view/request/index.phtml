@@ -50,6 +50,14 @@ if (!function_exists('request_page_h')) {
     }
 }
 
+if (!function_exists('request_page_format_description')) {
+    function request_page_format_description($value): string {
+        $escaped = request_page_h($value);
+        $formatted = preg_replace('/\*\*([^\r\n]+?)\*\*/u', '<strong>$1</strong>', $escaped);
+        return nl2br($formatted === null ? $escaped : $formatted);
+    }
+}
+
 if (!function_exists('request_page_type_label')) {
     function request_page_type_label($value): string {
         $labels = ['image' => '画像', 'movie' => '動画', 'vr' => 'VR', 'other' => 'その他'];
@@ -102,7 +110,6 @@ $this->load($this->getViewPath() . 'header.phtml');
 }
 .request-type-description {
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 </style>
 
@@ -128,7 +135,7 @@ $this->load($this->getViewPath() . 'header.phtml');
 
   <?php if (!empty($setting['description_text'])): ?>
     <section class="border rounded p-3 mb-4">
-      <?php echo nl2br(request_page_h($setting['description_text'])); ?>
+      <?php echo request_page_format_description($setting['description_text']); ?>
     </section>
   <?php endif; ?>
 
@@ -153,7 +160,7 @@ $this->load($this->getViewPath() . 'header.phtml');
                 <option value="<?php echo request_page_h($value); ?>"<?php echo (($formValues['request_type'] ?? $defaultRequestType) === $value) ? ' selected' : ''; ?><?php echo $typeAvailable ? '' : ' disabled'; ?>><?php echo request_page_h($typeOptionLabel); ?></option>
               <?php endforeach; ?>
             </select>
-            <div class="form-text request-type-description<?php echo $selectedRequestTypeDescription === '' ? ' d-none' : ''; ?>" id="requestTypeDescription"><?php echo request_page_h($selectedRequestTypeDescription); ?></div>
+            <div class="form-text request-type-description<?php echo $selectedRequestTypeDescription === '' ? ' d-none' : ''; ?>" id="requestTypeDescription"><?php echo request_page_format_description($selectedRequestTypeDescription); ?></div>
           </div>
           <div class="col-12">
             <label class="form-label" for="requestText">リクエスト内容</label>
@@ -311,10 +318,27 @@ $this->load($this->getViewPath() . 'header.phtml');
   var requestType = document.getElementById('requestType');
   var requestTypeDescription = document.getElementById('requestTypeDescription');
   var requestTypeDescriptions = <?php echo json_encode($requestTypeDescriptions, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+  function renderRequestDescription(container, value){
+    container.textContent = '';
+    String(value || '').split(/\r\n|\r|\n/).forEach(function(line, lineIndex){
+      if (lineIndex > 0) container.appendChild(document.createElement('br'));
+      var pattern = /\*\*([^\r\n]+?)\*\*/g;
+      var offset = 0;
+      var match;
+      while ((match = pattern.exec(line)) !== null) {
+        if (match.index > offset) container.appendChild(document.createTextNode(line.slice(offset, match.index)));
+        var strong = document.createElement('strong');
+        strong.textContent = match[1];
+        container.appendChild(strong);
+        offset = pattern.lastIndex;
+      }
+      if (offset < line.length) container.appendChild(document.createTextNode(line.slice(offset)));
+    });
+  }
   function updateRequestTypeDescription(){
     if (!requestType || !requestTypeDescription) return;
     var description = requestTypeDescriptions[requestType.value] || '';
-    requestTypeDescription.textContent = description;
+    renderRequestDescription(requestTypeDescription, description);
     requestTypeDescription.classList.toggle('d-none', description === '');
   }
   if (requestType) {

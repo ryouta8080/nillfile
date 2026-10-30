@@ -218,7 +218,7 @@ $this->load($this->getViewPath() . 'header.phtml');
                       </div>
                     </td>
                     <td>
-                      <textarea class="form-control form-control-sm" name="request_type_description[<?php echo request_admin_h($typeCode); ?>]" rows="2" maxlength="16000" placeholder="この種別を選択したユーザーに表示する説明"><?php echo request_admin_h($typeDescription); ?></textarea>
+                      <textarea class="form-control form-control-sm" name="request_type_description[<?php echo request_admin_h($typeCode); ?>]" rows="2" maxlength="16000" placeholder="説明。**文字**で太字"><?php echo request_admin_h($typeDescription); ?></textarea>
                     </td>
                     <td>
                       <div class="input-group input-group-sm">
@@ -237,7 +237,7 @@ $this->load($this->getViewPath() . 'header.phtml');
               </tbody>
             </table>
           </div>
-          <div class="form-text">空欄または0は、その種別固有の制限なしです。全体の投稿制限は別途適用されます。</div>
+          <div class="form-text">空欄または0は、その種別固有の制限なしです。全体の投稿制限は別途適用されます。説明文は **文字** で太字にできます。</div>
         </div>
         <div class="col-md-3">
           <label class="form-label" for="requestMaxLength">最大文字数</label>
@@ -263,6 +263,7 @@ $this->load($this->getViewPath() . 'header.phtml');
         <div class="col-md-6">
           <label class="form-label" for="requestDescription">説明文・注意事項</label>
           <textarea class="form-control" id="requestDescription" name="description_text" rows="5" maxlength="16000"><?php echo request_admin_h($setting['description_text'] ?? ''); ?></textarea>
+          <div class="form-text">**文字** で太字にできます。HTMLは文字として表示されます。</div>
         </div>
         <div class="col-md-6">
           <label class="form-label" for="requestThanks">送信完了メッセージ</label>
